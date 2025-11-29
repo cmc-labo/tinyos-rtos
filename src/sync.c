@@ -21,12 +21,14 @@ void os_mutex_init(mutex_t *mutex) {
 
 /**
  * Lock mutex with timeout
+ * Implements Priority Inheritance Protocol to prevent priority inversion
  */
 os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
     if (mutex == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
 
+    tcb_t *current_task = os_task_get_current();
     uint32_t start_tick = os_get_tick_count();
 
     while (true) {
@@ -35,7 +37,7 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
         if (!mutex->locked) {
             /* Acquire mutex */
             mutex->locked = true;
-            mutex->owner = os_task_get_current();
+            mutex->owner = current_task;
 
             /* Priority ceiling protocol */
             if (mutex->owner->priority > mutex->ceiling_priority) {
@@ -44,6 +46,12 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
 
             os_exit_critical(state);
             return OS_OK;
+        }
+
+        /* Priority Inheritance: If owner has lower priority, boost it */
+        if (mutex->owner != NULL && current_task->priority < mutex->owner->priority) {
+            /* Temporarily raise the owner's priority to avoid priority inversion */
+            os_task_raise_priority(mutex->owner, current_task->priority);
         }
 
         os_exit_critical(state);
@@ -60,19 +68,25 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
 
 /**
  * Unlock mutex
+ * Resets priority inheritance if it was applied
  */
 os_error_t os_mutex_unlock(mutex_t *mutex) {
     if (mutex == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
 
+    tcb_t *current_task = os_task_get_current();
+
     uint32_t state = os_enter_critical();
 
     /* Check ownership */
-    if (mutex->owner != os_task_get_current()) {
+    if (mutex->owner != current_task) {
         os_exit_critical(state);
         return OS_ERROR_PERMISSION_DENIED;
     }
+
+    /* Reset priority inheritance - restore base priority */
+    os_task_reset_priority(current_task);
 
     /* Release mutex */
     mutex->locked = false;

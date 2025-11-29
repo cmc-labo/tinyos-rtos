@@ -16,6 +16,7 @@ TinyOS is an ultra-lightweight real-time operating system designed specifically 
 - **Deterministic Context Switching**: Predictable response times
 - **1ms Timer Precision**: High-accuracy time management
 - **Priority Inheritance**: Prevents priority inversion
+- **Dynamic Priority Adjustment**: Runtime priority modification for adaptive scheduling
 
 ### Security-First Design
 - **Memory Protection Unit (MPU)**: Task memory isolation
@@ -153,6 +154,18 @@ void os_task_yield(void);
 
 /* Delay */
 void os_task_delay(uint32_t ticks);
+
+/* Get task priority */
+task_priority_t os_task_get_priority(tcb_t *task);
+
+/* Set task priority (dynamic adjustment) */
+os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority);
+
+/* Raise priority temporarily (for priority inheritance) */
+os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority);
+
+/* Reset to base priority */
+os_error_t os_task_reset_priority(tcb_t *task);
 ```
 
 ### Synchronization Primitives
@@ -295,6 +308,42 @@ void task_b(void *param) {
 }
 ```
 
+### Dynamic Priority Adjustment
+
+```c
+tcb_t sensor_task;
+tcb_t processing_task;
+
+void sensor_reading(void *param) {
+    while (1) {
+        /* Temporarily boost priority for critical reading */
+        os_task_set_priority(&sensor_task, PRIORITY_CRITICAL);
+
+        /* Read time-sensitive data */
+        read_sensor_data();
+
+        /* Return to normal priority */
+        os_task_set_priority(&sensor_task, PRIORITY_NORMAL);
+
+        os_task_delay(1000);
+    }
+}
+
+void adaptive_processing(void *param) {
+    while (1) {
+        /* Adjust priority based on workload */
+        if (queue_size > THRESHOLD) {
+            os_task_set_priority(&processing_task, PRIORITY_HIGH);
+        } else {
+            os_task_set_priority(&processing_task, PRIORITY_LOW);
+        }
+
+        process_data();
+        os_task_delay(100);
+    }
+}
+```
+
 ## Performance
 
 ### Memory Usage
@@ -344,8 +393,9 @@ tinyos-rtos/
 │   ├── sync.c            # Synchronization primitives
 │   └── security.c        # MPU & security
 ├── examples/
-│   ├── blink_led.c       # LED blink example
-│   └── iot_sensor.c      # IoT sensor example
+│   ├── blink_led.c          # LED blink example
+│   ├── iot_sensor.c         # IoT sensor example
+│   └── priority_adjustment.c # Dynamic priority demo
 ├── drivers/              # Hardware drivers
 ├── docs/                 # Documentation
 ├── Makefile              # Build system
@@ -354,8 +404,8 @@ tinyos-rtos/
 
 ## Roadmap
 
-### Version 1.1 (Planned)
-- [ ] Dynamic priority adjustment
+### Version 1.1 (In Progress)
+- [x] **Dynamic priority adjustment** - ✅ Implemented!
 - [ ] Event groups
 - [ ] Software timers
 - [ ] Low-power modes
@@ -437,8 +487,25 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.0.0
+Version: 1.1.0-beta
 Updated: 2025
+
+## Changelog
+
+### Version 1.1.0-beta (2025-11-29)
+- ✨ **New Feature**: Dynamic priority adjustment
+  - `os_task_set_priority()` - Change task priority at runtime
+  - `os_task_get_priority()` - Query current task priority
+  - `os_task_raise_priority()` - Temporarily boost priority
+  - `os_task_reset_priority()` - Restore base priority
+- ✨ **Enhanced**: Priority inheritance mechanism in mutex
+  - Automatic priority boosting to prevent priority inversion
+  - Base priority tracking for proper restoration
+- 📚 **Added**: Priority adjustment example code
+- 🐛 **Fixed**: Task removal from ready queue when priority changes
+
+### Version 1.0.0 (2025)
+- Initial release with core RTOS features
 
 ---
 

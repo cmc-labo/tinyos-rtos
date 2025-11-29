@@ -51,6 +51,7 @@ typedef struct task_control_block {
     uint32_t stack[STACK_SIZE];         /* Task stack */
     task_state_t state;                 /* Current state */
     task_priority_t priority;           /* Task priority */
+    task_priority_t base_priority;      /* Base priority (for inheritance) */
     uint32_t time_slice;                /* Remaining time slice */
     char name[16];                      /* Task name */
     void (*entry_point)(void *);        /* Entry function */
@@ -129,6 +130,18 @@ void os_task_delay(uint32_t ticks);
 
 /* Get current task */
 tcb_t *os_task_get_current(void);
+
+/* Get task priority */
+task_priority_t os_task_get_priority(tcb_t *task);
+
+/* Set task priority (dynamic priority adjustment) */
+os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority);
+
+/* Raise task priority temporarily (returns to base priority when released) */
+os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority);
+
+/* Reset task to base priority */
+os_error_t os_task_reset_priority(tcb_t *task);
 
 /*
  * Synchronization API

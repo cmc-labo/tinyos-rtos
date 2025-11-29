@@ -173,6 +173,7 @@ os_error_t os_task_create(
     task->entry_point = entry;
     task->param = param;
     task->priority = priority;
+    task->base_priority = priority;  /* Store base priority */
     task->state = TASK_STATE_READY;
     task->time_slice = TIME_SLICE_MS;
 
@@ -342,4 +343,148 @@ uint8_t os_task_get_cpu_usage(tcb_t *task) {
     }
 
     return (uint8_t)((task->run_time * 100) / kernel.tick_count);
+}
+
+/**
+ * Remove task from ready queue
+ */
+static void scheduler_remove_task(tcb_t *task) {
+    /* Search through all priority queues */
+    for (int i = 0; i < 256; i++) {
+        tcb_t *prev = NULL;
+        tcb_t *current = kernel.ready_queue[i];
+
+        while (current != NULL) {
+            if (current == task) {
+                /* Found the task, remove it */
+                if (prev == NULL) {
+                    kernel.ready_queue[i] = current->next;
+                } else {
+                    prev->next = current->next;
+                }
+                current->next = NULL;
+                return;
+            }
+            prev = current;
+            current = current->next;
+        }
+    }
+}
+
+/**
+ * Get task priority
+ */
+task_priority_t os_task_get_priority(tcb_t *task) {
+    if (task == NULL) {
+        return PRIORITY_IDLE;
+    }
+    return task->priority;
+}
+
+/**
+ * Set task priority (dynamic priority adjustment)
+ * This changes both current and base priority
+ */
+os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority) {
+    if (task == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    task_priority_t old_priority = task->priority;
+    task->priority = new_priority;
+    task->base_priority = new_priority;  /* Update base priority too */
+
+    /* If task is in ready queue, re-insert at new priority */
+    if (task->state == TASK_STATE_READY) {
+        scheduler_remove_task(task);
+        scheduler_add_ready_task(task);
+    }
+
+    /* If this is the current task and priority decreased, yield */
+    if (task == kernel.current_task && new_priority > old_priority) {
+        os_exit_critical(state);
+        os_task_yield();
+        return OS_OK;
+    }
+
+    /* If a higher priority task is now ready, trigger scheduler */
+    if (new_priority < kernel.current_task->priority) {
+        os_exit_critical(state);
+        os_task_yield();
+        return OS_OK;
+    }
+
+    os_exit_critical(state);
+    return OS_OK;
+}
+
+/**
+ * Raise task priority temporarily
+ * Used for priority inheritance - priority will return to base when reset
+ */
+os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority) {
+    if (task == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    /* Only raise priority, don't lower it */
+    if (new_priority >= task->priority) {
+        return OS_OK;  /* No change needed */
+    }
+
+    uint32_t state = os_enter_critical();
+
+    task_priority_t old_priority = task->priority;
+    task->priority = new_priority;
+    /* Note: base_priority remains unchanged */
+
+    /* If task is in ready queue, re-insert at new priority */
+    if (task->state == TASK_STATE_READY) {
+        scheduler_remove_task(task);
+        scheduler_add_ready_task(task);
+    }
+
+    /* If a higher priority task is now ready, trigger scheduler */
+    if (new_priority < kernel.current_task->priority) {
+        os_exit_critical(state);
+        os_task_yield();
+        return OS_OK;
+    }
+
+    os_exit_critical(state);
+    return OS_OK;
+}
+
+/**
+ * Reset task to base priority
+ * Used to release priority inheritance
+ */
+os_error_t os_task_reset_priority(tcb_t *task) {
+    if (task == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    /* Reset to base priority */
+    task_priority_t old_priority = task->priority;
+    task->priority = task->base_priority;
+
+    /* If task is in ready queue, re-insert at base priority */
+    if (task->state == TASK_STATE_READY) {
+        scheduler_remove_task(task);
+        scheduler_add_ready_task(task);
+    }
+
+    /* If this is current task and priority decreased, yield */
+    if (task == kernel.current_task && task->priority > old_priority) {
+        os_exit_critical(state);
+        os_task_yield();
+        return OS_OK;
+    }
+
+    os_exit_critical(state);
+    return OS_OK;
 }
