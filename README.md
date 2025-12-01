@@ -221,6 +221,28 @@ os_error_t os_queue_receive(
 );
 ```
 
+### Software Timers
+
+```c
+/* Create timer */
+os_error_t os_timer_create(
+    timer_t *timer,
+    const char *name,
+    timer_type_t type,  /* TIMER_ONE_SHOT or TIMER_AUTO_RELOAD */
+    uint32_t period_ms,
+    timer_callback_t callback,
+    void *callback_param
+);
+
+/* Control timers */
+os_error_t os_timer_start(timer_t *timer);
+os_error_t os_timer_stop(timer_t *timer);
+os_error_t os_timer_reset(timer_t *timer);
+os_error_t os_timer_delete(timer_t *timer);
+os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms);
+bool os_timer_is_active(timer_t *timer);
+```
+
 ### Memory Management
 
 ```c
@@ -413,6 +435,59 @@ void network_task(void *param) {
 }
 ```
 
+### Software Timers
+
+```c
+static timer_t led_timer;
+static timer_t heartbeat_timer;
+
+/* Timer callback functions */
+void led_blink_callback(void *param) {
+    toggle_led();  /* Toggle LED state */
+}
+
+void heartbeat_callback(void *param) {
+    send_heartbeat_packet();
+}
+
+int main(void) {
+    os_init();
+
+    /* Create auto-reload timer (LED blinks every 500ms) */
+    os_timer_create(
+        &led_timer,
+        "led_blink",
+        TIMER_AUTO_RELOAD,  /* Automatically restarts */
+        500,                 /* 500ms period */
+        led_blink_callback,
+        NULL
+    );
+
+    /* Create one-shot timer (fires once after 5 seconds) */
+    os_timer_create(
+        &heartbeat_timer,
+        "heartbeat",
+        TIMER_ONE_SHOT,     /* Fires once only */
+        5000,                /* 5 second delay */
+        heartbeat_callback,
+        NULL
+    );
+
+    /* Start timers */
+    os_timer_start(&led_timer);
+    os_timer_start(&heartbeat_timer);
+
+    /* Dynamically change timer period */
+    os_timer_change_period(&led_timer, 1000);  /* Change to 1 second */
+
+    /* Stop/restart timer */
+    os_timer_stop(&led_timer);
+    os_timer_start(&led_timer);
+
+    os_start();
+}
+```
+
 ## Performance
 
 ### Memory Usage
@@ -460,12 +535,14 @@ tinyos-rtos/
 │   ├── kernel.c             # Scheduler & task management
 │   ├── memory.c             # Memory allocator
 │   ├── sync.c               # Synchronization primitives & event groups
+│   ├── timer.c              # Software timers
 │   └── security.c           # MPU & security
 ├── examples/
 │   ├── blink_led.c          # LED blink example
 │   ├── iot_sensor.c         # IoT sensor example
 │   ├── priority_adjustment.c # Dynamic priority demo
-│   └── event_groups.c       # Event group synchronization demo
+│   ├── event_groups.c       # Event group synchronization demo
+│   └── software_timers.c    # Software timer examples
 ├── drivers/                 # Hardware drivers
 ├── docs/                    # Documentation
 ├── Makefile                 # Build system
@@ -477,7 +554,7 @@ tinyos-rtos/
 ### Version 1.1 (In Progress)
 - [x] **Dynamic priority adjustment** - ✅ Implemented!
 - [x] **Event groups** - ✅ Implemented!
-- [ ] Software timers
+- [x] **Software timers** - ✅ Implemented!
 - [ ] Low-power modes
 
 ### Version 1.2 (Planned)
@@ -562,7 +639,16 @@ Updated: 2025
 
 ## Changelog
 
-### Version 1.1.0-beta (2025-11-30)
+### Version 1.1.0-beta (2025-12-01)
+- ✨ **New Feature**: Software Timers
+  - `os_timer_create()` - Create one-shot or auto-reload timers
+  - `os_timer_start()` / `os_timer_stop()` - Control timer execution
+  - `os_timer_reset()` - Restart timer
+  - `os_timer_change_period()` - Dynamically adjust timer period
+  - `os_timer_is_active()` - Check timer status
+  - Callback-based execution in interrupt context
+  - Sorted timer list for efficient processing
+  - Low memory overhead (no dedicated task required)
 - ✨ **New Feature**: Event Groups
   - `os_event_group_init()` - Initialize event group
   - `os_event_group_set_bits()` - Set event bits
@@ -580,6 +666,7 @@ Updated: 2025
 - ✨ **Enhanced**: Priority inheritance mechanism in mutex
   - Automatic priority boosting to prevent priority inversion
   - Base priority tracking for proper restoration
+- 📚 **Added**: Software timer example code with multiple use cases
 - 📚 **Added**: Event group example code demonstrating IoT sensor synchronization
 - 📚 **Added**: Priority adjustment example code
 - 🐛 **Fixed**: Task removal from ready queue when priority changes

@@ -251,6 +251,59 @@ uint32_t os_get_tick_count(void);
 uint32_t os_get_uptime_ms(void);
 
 /*
+ * Software Timer API
+ */
+
+/* Timer types */
+typedef enum {
+    TIMER_ONE_SHOT = 0,    /* Timer fires once */
+    TIMER_AUTO_RELOAD      /* Timer automatically reloads */
+} timer_type_t;
+
+/* Timer callback function */
+typedef void (*timer_callback_t)(void *param);
+
+/* Timer control block */
+typedef struct software_timer {
+    char name[16];                    /* Timer name */
+    timer_type_t type;                /* Timer type */
+    uint32_t period;                  /* Timer period in ticks */
+    uint32_t expire_time;             /* When timer expires */
+    bool active;                      /* Timer is active */
+    timer_callback_t callback;        /* Callback function */
+    void *callback_param;             /* Callback parameter */
+    struct software_timer *next;      /* Next timer in list */
+} timer_t;
+
+/* Create a software timer */
+os_error_t os_timer_create(
+    timer_t *timer,
+    const char *name,
+    timer_type_t type,
+    uint32_t period_ms,
+    timer_callback_t callback,
+    void *callback_param
+);
+
+/* Start a timer */
+os_error_t os_timer_start(timer_t *timer);
+
+/* Stop a timer */
+os_error_t os_timer_stop(timer_t *timer);
+
+/* Reset a timer */
+os_error_t os_timer_reset(timer_t *timer);
+
+/* Delete a timer */
+os_error_t os_timer_delete(timer_t *timer);
+
+/* Change timer period */
+os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms);
+
+/* Check if timer is active */
+bool os_timer_is_active(timer_t *timer);
+
+/*
  * Security API
  */
 
