@@ -277,3 +277,132 @@ os_error_t os_queue_receive(
         os_task_delay(1);
     }
 }
+
+/**
+ * Event Group Implementation
+ */
+
+/**
+ * Initialize event group
+ */
+void os_event_group_init(event_group_t *event_group) {
+    if (event_group == NULL) return;
+
+    event_group->events = 0;
+    event_group->wait_queue = NULL;
+}
+
+/**
+ * Set event bits
+ * This function sets the specified bits and wakes up any waiting tasks
+ */
+os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits) {
+    if (event_group == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    /* Set the event bits */
+    event_group->events |= bits;
+
+    os_exit_critical(state);
+
+    /* Wake up tasks that might be waiting for these events */
+    os_task_yield();
+
+    return OS_OK;
+}
+
+/**
+ * Clear event bits
+ */
+os_error_t os_event_group_clear_bits(event_group_t *event_group, uint32_t bits) {
+    if (event_group == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    /* Clear the specified bits */
+    event_group->events &= ~bits;
+
+    os_exit_critical(state);
+
+    return OS_OK;
+}
+
+/**
+ * Wait for event bits
+ * Supports waiting for ANY or ALL specified bits with optional auto-clear
+ */
+os_error_t os_event_group_wait_bits(
+    event_group_t *event_group,
+    uint32_t bits_to_wait_for,
+    uint8_t options,
+    uint32_t *bits_received,
+    uint32_t timeout
+) {
+    if (event_group == NULL || bits_to_wait_for == 0) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t start_tick = os_get_tick_count();
+    bool wait_all = (options & EVENT_WAIT_ALL) != 0;
+    bool clear_on_exit = (options & EVENT_CLEAR_ON_EXIT) != 0;
+
+    while (true) {
+        uint32_t state = os_enter_critical();
+
+        uint32_t current_events = event_group->events;
+        bool condition_met = false;
+
+        if (wait_all) {
+            /* Wait for ALL specified bits */
+            condition_met = (current_events & bits_to_wait_for) == bits_to_wait_for;
+        } else {
+            /* Wait for ANY specified bit */
+            condition_met = (current_events & bits_to_wait_for) != 0;
+        }
+
+        if (condition_met) {
+            /* Return the bits that matched */
+            if (bits_received != NULL) {
+                *bits_received = current_events & bits_to_wait_for;
+            }
+
+            /* Clear bits if requested */
+            if (clear_on_exit) {
+                event_group->events &= ~bits_to_wait_for;
+            }
+
+            os_exit_critical(state);
+            return OS_OK;
+        }
+
+        os_exit_critical(state);
+
+        /* Check timeout */
+        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
+            return OS_ERROR_TIMEOUT;
+        }
+
+        /* Yield and wait for events */
+        os_task_yield();
+    }
+}
+
+/**
+ * Get current event bits (non-blocking)
+ */
+uint32_t os_event_group_get_bits(event_group_t *event_group) {
+    if (event_group == NULL) {
+        return 0;
+    }
+
+    uint32_t state = os_enter_critical();
+    uint32_t bits = event_group->events;
+    os_exit_critical(state);
+
+    return bits;
+}

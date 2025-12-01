@@ -180,6 +180,19 @@ os_error_t os_mutex_unlock(mutex_t *mutex);
 void os_semaphore_init(semaphore_t *sem, int32_t count);
 os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout);
 os_error_t os_semaphore_post(semaphore_t *sem);
+
+/* Event Groups */
+void os_event_group_init(event_group_t *event_group);
+os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits);
+os_error_t os_event_group_clear_bits(event_group_t *event_group, uint32_t bits);
+os_error_t os_event_group_wait_bits(
+    event_group_t *event_group,
+    uint32_t bits_to_wait_for,
+    uint8_t options,
+    uint32_t *bits_received,
+    uint32_t timeout
+);
+uint32_t os_event_group_get_bits(event_group_t *event_group);
 ```
 
 ### Message Queues
@@ -344,6 +357,62 @@ void adaptive_processing(void *param) {
 }
 ```
 
+### Event Groups
+
+```c
+/* Define event bits */
+#define EVENT_SENSOR_READY    (1 << 0)
+#define EVENT_DATA_AVAILABLE  (1 << 1)
+#define EVENT_NETWORK_READY   (1 << 2)
+
+static event_group_t system_events;
+
+/* Sensor task - sets event when data is ready */
+void sensor_task(void *param) {
+    while (1) {
+        /* Read sensor */
+        read_sensor();
+
+        /* Signal data available */
+        os_event_group_set_bits(&system_events, EVENT_DATA_AVAILABLE);
+
+        os_task_delay(1000);
+    }
+}
+
+/* Upload task - waits for BOTH data and network */
+void upload_task(void *param) {
+    uint32_t bits_received;
+
+    while (1) {
+        /* Wait for BOTH data available AND network ready */
+        os_event_group_wait_bits(
+            &system_events,
+            EVENT_DATA_AVAILABLE | EVENT_NETWORK_READY,
+            EVENT_WAIT_ALL | EVENT_CLEAR_ON_EXIT,
+            &bits_received,
+            5000  /* 5 second timeout */
+        );
+
+        /* Upload data */
+        upload_sensor_data();
+    }
+}
+
+/* Network task - sets event when connected */
+void network_task(void *param) {
+    while (1) {
+        if (network_is_connected()) {
+            os_event_group_set_bits(&system_events, EVENT_NETWORK_READY);
+        } else {
+            os_event_group_clear_bits(&system_events, EVENT_NETWORK_READY);
+        }
+
+        os_task_delay(100);
+    }
+}
+```
+
 ## Performance
 
 ### Memory Usage
@@ -386,19 +455,20 @@ Customize settings in `include/tinyos.h`:
 ```
 tinyos-rtos/
 ├── include/
-│   └── tinyos.h          # Public API
+│   └── tinyos.h             # Public API
 ├── src/
-│   ├── kernel.c          # Scheduler & task management
-│   ├── memory.c          # Memory allocator
-│   ├── sync.c            # Synchronization primitives
-│   └── security.c        # MPU & security
+│   ├── kernel.c             # Scheduler & task management
+│   ├── memory.c             # Memory allocator
+│   ├── sync.c               # Synchronization primitives & event groups
+│   └── security.c           # MPU & security
 ├── examples/
 │   ├── blink_led.c          # LED blink example
 │   ├── iot_sensor.c         # IoT sensor example
-│   └── priority_adjustment.c # Dynamic priority demo
-├── drivers/              # Hardware drivers
-├── docs/                 # Documentation
-├── Makefile              # Build system
+│   ├── priority_adjustment.c # Dynamic priority demo
+│   └── event_groups.c       # Event group synchronization demo
+├── drivers/                 # Hardware drivers
+├── docs/                    # Documentation
+├── Makefile                 # Build system
 └── README.md
 ```
 
@@ -406,7 +476,7 @@ tinyos-rtos/
 
 ### Version 1.1 (In Progress)
 - [x] **Dynamic priority adjustment** - ✅ Implemented!
-- [ ] Event groups
+- [x] **Event groups** - ✅ Implemented!
 - [ ] Software timers
 - [ ] Low-power modes
 
@@ -492,7 +562,16 @@ Updated: 2025
 
 ## Changelog
 
-### Version 1.1.0-beta (2025-11-29)
+### Version 1.1.0-beta (2025-11-30)
+- ✨ **New Feature**: Event Groups
+  - `os_event_group_init()` - Initialize event group
+  - `os_event_group_set_bits()` - Set event bits
+  - `os_event_group_clear_bits()` - Clear event bits
+  - `os_event_group_wait_bits()` - Wait for event bits with options
+  - `os_event_group_get_bits()` - Get current event bits
+  - Support for waiting on ANY or ALL event bits
+  - Auto-clear on exit functionality
+  - 32-bit event flags for flexible synchronization
 - ✨ **New Feature**: Dynamic priority adjustment
   - `os_task_set_priority()` - Change task priority at runtime
   - `os_task_get_priority()` - Query current task priority
@@ -501,6 +580,7 @@ Updated: 2025
 - ✨ **Enhanced**: Priority inheritance mechanism in mutex
   - Automatic priority boosting to prevent priority inversion
   - Base priority tracking for proper restoration
+- 📚 **Added**: Event group example code demonstrating IoT sensor synchronization
 - 📚 **Added**: Priority adjustment example code
 - 🐛 **Fixed**: Task removal from ready queue when priority changes
 

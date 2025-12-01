@@ -94,6 +94,17 @@ typedef struct {
     mutex_t lock;
 } msg_queue_t;
 
+/* Event group */
+typedef struct {
+    volatile uint32_t events;     /* Current event bits */
+    tcb_t *wait_queue;            /* Tasks waiting for events */
+} event_group_t;
+
+/* Event group wait options */
+#define EVENT_WAIT_ALL    0x01    /* Wait for all specified bits */
+#define EVENT_WAIT_ANY    0x02    /* Wait for any specified bit */
+#define EVENT_CLEAR_ON_EXIT 0x04  /* Clear bits after waking up */
+
 /*
  * Core OS API
  */
@@ -164,6 +175,31 @@ os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout);
 
 /* Post to semaphore */
 os_error_t os_semaphore_post(semaphore_t *sem);
+
+/*
+ * Event Group API
+ */
+
+/* Initialize event group */
+void os_event_group_init(event_group_t *event_group);
+
+/* Set event bits */
+os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits);
+
+/* Clear event bits */
+os_error_t os_event_group_clear_bits(event_group_t *event_group, uint32_t bits);
+
+/* Wait for event bits */
+os_error_t os_event_group_wait_bits(
+    event_group_t *event_group,
+    uint32_t bits_to_wait_for,
+    uint8_t options,
+    uint32_t *bits_received,
+    uint32_t timeout
+);
+
+/* Get current event bits */
+uint32_t os_event_group_get_bits(event_group_t *event_group);
 
 /*
  * Message Queue API
