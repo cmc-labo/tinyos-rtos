@@ -243,6 +243,40 @@ os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms);
 bool os_timer_is_active(timer_t *timer);
 ```
 
+### Power Management
+
+```c
+/* Initialize power management */
+void os_power_init(void);
+
+/* Configure power management */
+os_error_t os_power_configure(const power_config_t *config);
+
+/* Set power mode */
+os_error_t os_power_set_mode(power_mode_t mode);
+
+/* Get current power mode */
+power_mode_t os_power_get_mode(void);
+
+/* Enter sleep modes */
+os_error_t os_power_enter_sleep(uint32_t duration_ms);
+os_error_t os_power_enter_deep_sleep(uint32_t duration_ms);
+
+/* Tickless idle mode */
+os_error_t os_power_enable_tickless_idle(bool enable);
+
+/* Configure wakeup sources */
+os_error_t os_power_configure_wakeup(wakeup_source_t source, bool enable);
+
+/* Power statistics */
+void os_power_get_stats(power_stats_t *stats);
+uint32_t os_power_get_consumption_mw(void);
+uint32_t os_power_estimate_battery_life_hours(void);
+
+/* Dynamic frequency scaling */
+os_error_t os_power_set_cpu_frequency(uint32_t freq_hz);
+```
+
 ### Memory Management
 
 ```c
@@ -488,6 +522,63 @@ int main(void) {
 }
 ```
 
+### Low-Power Modes
+
+```c
+/* Configure power management */
+power_config_t power_config = {
+    .idle_mode_enabled = true,
+    .sleep_mode_enabled = true,
+    .deep_sleep_threshold_ms = 1000,  /* Use deep sleep for >1s delays */
+    .cpu_freq_hz = 48000000,          /* 48 MHz */
+    .battery_capacity_mah = 2000,     /* 2000 mAh battery */
+    .battery_voltage_mv = 3300        /* 3.3V nominal */
+};
+
+int main(void) {
+    os_init();
+    os_power_init();
+    os_power_configure(&power_config);
+
+    /* Enable tickless idle for maximum power savings */
+    os_power_enable_tickless_idle(true);
+
+    /* Configure wakeup sources */
+    os_power_configure_wakeup(WAKEUP_SOURCE_RTC, true);
+    os_power_configure_wakeup(WAKEUP_SOURCE_GPIO, true);
+
+    /* Create tasks... */
+
+    os_start();
+}
+
+/* In task: Enter sleep mode */
+void sensor_task(void *param) {
+    while (1) {
+        /* Read sensor */
+        read_sensor_data();
+
+        /* Sleep for 5 seconds to save power */
+        os_power_enter_sleep(5000);
+    }
+}
+
+/* Get power statistics */
+void monitor_task(void *param) {
+    power_stats_t stats;
+
+    while (1) {
+        os_power_get_stats(&stats);
+
+        printf("Power Mode: %d\n", stats.current_mode);
+        printf("Power Consumption: %lu mW\n", stats.power_consumption_mw);
+        printf("Battery Life: %lu hours\n", stats.estimated_battery_life_hours);
+
+        os_task_delay(10000);
+    }
+}
+```
+
 ## Performance
 
 ### Memory Usage
@@ -536,13 +627,15 @@ tinyos-rtos/
 │   ├── memory.c             # Memory allocator
 │   ├── sync.c               # Synchronization primitives & event groups
 │   ├── timer.c              # Software timers
+│   ├── power.c              # Power management
 │   └── security.c           # MPU & security
 ├── examples/
 │   ├── blink_led.c          # LED blink example
 │   ├── iot_sensor.c         # IoT sensor example
 │   ├── priority_adjustment.c # Dynamic priority demo
 │   ├── event_groups.c       # Event group synchronization demo
-│   └── software_timers.c    # Software timer examples
+│   ├── software_timers.c    # Software timer examples
+│   └── low_power.c          # Low-power mode examples
 ├── drivers/                 # Hardware drivers
 ├── docs/                    # Documentation
 ├── Makefile                 # Build system
@@ -551,11 +644,11 @@ tinyos-rtos/
 
 ## Roadmap
 
-### Version 1.1 (In Progress)
+### Version 1.1 (Completed)
 - [x] **Dynamic priority adjustment** - ✅ Implemented!
 - [x] **Event groups** - ✅ Implemented!
 - [x] **Software timers** - ✅ Implemented!
-- [ ] Low-power modes
+- [x] **Low-power modes** - ✅ Implemented!
 
 ### Version 1.2 (Planned)
 - [ ] Network stack integration
@@ -634,12 +727,24 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.1.0-beta
+Version: 1.1.0
 Updated: 2025
 
 ## Changelog
 
-### Version 1.1.0-beta (2025-12-01)
+### Version 1.1.0 (2025-12-04)
+- ✨ **New Feature**: Low-Power Modes
+  - `os_power_init()` / `os_power_configure()` - Power management setup
+  - `os_power_enter_sleep()` - Enter sleep mode with duration
+  - `os_power_enter_deep_sleep()` - Enter deep sleep mode
+  - `os_power_enable_tickless_idle()` - Enable tickless idle for maximum power savings
+  - `os_power_configure_wakeup()` - Configure wakeup sources (RTC, GPIO, UART, etc.)
+  - `os_power_get_stats()` - Get power statistics and battery life estimation
+  - `os_power_set_cpu_frequency()` - Dynamic frequency scaling
+  - `os_power_get_consumption_mw()` - Current power consumption
+  - Multiple power modes: Active, Idle, Sleep, Deep Sleep
+  - Platform-specific weak symbols for easy porting
+  - Battery life estimation based on consumption and capacity
 - ✨ **New Feature**: Software Timers
   - `os_timer_create()` - Create one-shot or auto-reload timers
   - `os_timer_start()` / `os_timer_stop()` - Control timer execution
@@ -666,6 +771,8 @@ Updated: 2025
 - ✨ **Enhanced**: Priority inheritance mechanism in mutex
   - Automatic priority boosting to prevent priority inversion
   - Base priority tracking for proper restoration
+- ✨ **Enhanced**: Idle task now uses power management for automatic low-power mode
+- 📚 **Added**: Low-power mode example demonstrating sleep modes and power statistics
 - 📚 **Added**: Software timer example code with multiple use cases
 - 📚 **Added**: Event group example code demonstrating IoT sensor synchronization
 - 📚 **Added**: Priority adjustment example code

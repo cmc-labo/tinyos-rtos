@@ -353,4 +353,103 @@ void os_get_stats(os_stats_t *stats);
 /* Get task CPU usage (0-100%) */
 uint8_t os_task_get_cpu_usage(tcb_t *task);
 
+/*
+ * Power Management API
+ */
+
+/* Power modes */
+typedef enum {
+    POWER_MODE_ACTIVE = 0,      /* Normal operation */
+    POWER_MODE_IDLE,            /* CPU stopped, peripherals running */
+    POWER_MODE_SLEEP,           /* CPU and most peripherals stopped */
+    POWER_MODE_DEEP_SLEEP,      /* Minimal power, RTC only */
+    POWER_MODE_MAX
+} power_mode_t;
+
+/* Wakeup sources */
+typedef enum {
+    WAKEUP_SOURCE_RTC = 0,      /* Real-time clock */
+    WAKEUP_SOURCE_GPIO,         /* GPIO interrupt */
+    WAKEUP_SOURCE_UART,         /* UART activity */
+    WAKEUP_SOURCE_TIMER,        /* Timer interrupt */
+    WAKEUP_SOURCE_I2C,          /* I2C activity */
+    WAKEUP_SOURCE_SPI,          /* SPI activity */
+    WAKEUP_SOURCE_ADC,          /* ADC conversion complete */
+    WAKEUP_SOURCE_USB,          /* USB activity */
+    WAKEUP_SOURCE_MAX
+} wakeup_source_t;
+
+/* Power configuration */
+typedef struct {
+    bool idle_mode_enabled;             /* Enable idle mode */
+    bool sleep_mode_enabled;            /* Enable sleep modes */
+    uint32_t deep_sleep_threshold_ms;   /* Min time for deep sleep */
+    uint32_t cpu_freq_hz;               /* CPU frequency */
+    uint32_t min_cpu_freq_hz;           /* Minimum CPU frequency */
+    uint32_t max_cpu_freq_hz;           /* Maximum CPU frequency */
+    uint32_t battery_capacity_mah;      /* Battery capacity */
+    uint32_t battery_voltage_mv;        /* Battery voltage */
+} power_config_t;
+
+/* Power statistics */
+typedef struct {
+    power_mode_t current_mode;          /* Current power mode */
+    uint32_t total_sleep_time_ms;       /* Total time in sleep modes */
+    uint32_t total_active_time_ms;      /* Total active time */
+    uint32_t wakeup_sources;            /* Enabled wakeup sources (bitmap) */
+    uint32_t power_consumption_mw;      /* Current power consumption */
+    uint32_t estimated_battery_life_hours; /* Estimated battery life */
+} power_stats_t;
+
+/* Power mode callback */
+typedef void (*power_callback_t)(power_mode_t mode);
+
+/* Initialize power management */
+void os_power_init(void);
+
+/* Configure power management */
+os_error_t os_power_configure(const power_config_t *config);
+
+/* Set power mode */
+os_error_t os_power_set_mode(power_mode_t mode);
+
+/* Get current power mode */
+power_mode_t os_power_get_mode(void);
+
+/* Enter idle mode (called automatically by idle task) */
+void os_power_enter_idle(void);
+
+/* Enter sleep mode for specified duration */
+os_error_t os_power_enter_sleep(uint32_t duration_ms);
+
+/* Enter deep sleep mode for specified duration */
+os_error_t os_power_enter_deep_sleep(uint32_t duration_ms);
+
+/* Enable/disable tickless idle mode */
+os_error_t os_power_enable_tickless_idle(bool enable);
+
+/* Check if tickless idle is enabled */
+bool os_power_is_tickless_idle_enabled(void);
+
+/* Register power mode callbacks */
+os_error_t os_power_register_callback(
+    power_callback_t enter_callback,
+    power_callback_t exit_callback
+);
+
+/* Configure wakeup sources */
+os_error_t os_power_configure_wakeup(wakeup_source_t source, bool enable);
+
+/* Get power statistics */
+void os_power_get_stats(power_stats_t *stats);
+
+/* Set CPU frequency */
+os_error_t os_power_set_cpu_frequency(uint32_t freq_hz);
+
+/* Get current power consumption (milliwatts) */
+uint32_t os_power_get_consumption_mw(void);
+
+/* Estimate battery life remaining (hours) */
+uint32_t os_power_estimate_battery_life_hours(void);
+
 #endif /* TINYOS_H */

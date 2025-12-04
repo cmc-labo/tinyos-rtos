@@ -22,8 +22,8 @@ static struct {
 static void idle_task(void *param) {
     (void)param;
     while (1) {
-        /* Enter low-power mode */
-        __asm__ volatile("wfi");  /* Wait for interrupt */
+        /* Enter low-power mode using power management */
+        os_power_enter_idle();
     }
 }
 
