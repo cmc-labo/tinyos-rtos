@@ -277,6 +277,44 @@ uint32_t os_power_estimate_battery_life_hours(void);
 os_error_t os_power_set_cpu_frequency(uint32_t freq_hz);
 ```
 
+### File System
+
+```c
+/* Initialize and mount file system */
+os_error_t fs_init(void);
+os_error_t fs_format(fs_block_device_t *device);
+os_error_t fs_mount(fs_block_device_t *device);
+os_error_t fs_unmount(void);
+
+/* File operations */
+fs_file_t fs_open(const char *path, uint32_t flags);
+os_error_t fs_close(fs_file_t fd);
+int32_t fs_read(fs_file_t fd, void *buffer, size_t size);
+int32_t fs_write(fs_file_t fd, const void *buffer, size_t size);
+int32_t fs_seek(fs_file_t fd, int32_t offset, int whence);
+int32_t fs_tell(fs_file_t fd);
+int32_t fs_size(fs_file_t fd);
+os_error_t fs_sync(fs_file_t fd);
+
+/* File management */
+os_error_t fs_remove(const char *path);
+os_error_t fs_rename(const char *old_path, const char *new_path);
+os_error_t fs_stat(const char *path, fs_stat_t *stat);
+os_error_t fs_truncate(fs_file_t fd, uint32_t size);
+
+/* Directory operations */
+os_error_t fs_mkdir(const char *path);
+os_error_t fs_rmdir(const char *path);
+fs_dir_t fs_opendir(const char *path);
+os_error_t fs_readdir(fs_dir_t dir, fs_dirent_t *entry);
+os_error_t fs_closedir(fs_dir_t dir);
+
+/* File system information */
+os_error_t fs_get_stats(fs_stats_t *stats);
+uint32_t fs_get_free_space(void);
+uint32_t fs_get_total_space(void);
+```
+
 ### Memory Management
 
 ```c
@@ -579,6 +617,101 @@ void monitor_task(void *param) {
 }
 ```
 
+### File System
+
+```c
+#include "tinyos.h"
+#include "drivers/ramdisk.h"
+
+int main(void) {
+    os_init();
+    fs_init();
+
+    /* Get storage device (RAM disk for testing) */
+    fs_block_device_t *device = ramdisk_get_device();
+
+    /* Format and mount */
+    fs_format(device);
+    fs_mount(device);
+
+    /* Create and write a file */
+    fs_file_t fd = fs_open("/sensor.log", FS_O_CREAT | FS_O_WRONLY);
+    if (fd != FS_INVALID_FD) {
+        const char *data = "Temperature: 25.5C\n";
+        fs_write(fd, data, strlen(data));
+        fs_close(fd);
+    }
+
+    /* Read file */
+    fd = fs_open("/sensor.log", FS_O_RDONLY);
+    if (fd != FS_INVALID_FD) {
+        char buffer[64];
+        int32_t bytes = fs_read(fd, buffer, sizeof(buffer));
+        buffer[bytes] = '\0';
+        printf("Read: %s\n", buffer);
+        fs_close(fd);
+    }
+
+    /* Directory operations */
+    fs_mkdir("/data");
+
+    /* List directory contents */
+    fs_dir_t dir = fs_opendir("/");
+    if (dir) {
+        fs_dirent_t entry;
+        while (fs_readdir(dir, &entry) == OS_OK) {
+            printf("%s (%lu bytes)\n", entry.name, entry.size);
+        }
+        fs_closedir(dir);
+    }
+
+    /* Get file statistics */
+    fs_stats_t stats;
+    fs_get_stats(&stats);
+    printf("Free space: %lu bytes\n", fs_get_free_space());
+
+    os_start();
+}
+```
+
+### Custom Storage Driver
+
+```c
+/* Example: Flash memory driver */
+static int flash_read(uint32_t block, void *buffer, uint32_t count) {
+    /* Read blocks from flash memory */
+    flash_memory_read(block * 512, buffer, count * 512);
+    return 0;
+}
+
+static int flash_write(uint32_t block, const void *buffer, uint32_t count) {
+    /* Write blocks to flash memory */
+    flash_memory_write(block * 512, buffer, count * 512);
+    return 0;
+}
+
+static int flash_erase(uint32_t block, uint32_t count) {
+    /* Erase flash sectors */
+    flash_memory_erase(block, count);
+    return 0;
+}
+
+static uint32_t flash_get_block_count(void) {
+    return 1024;  /* 512KB / 512 bytes */
+}
+
+fs_block_device_t flash_device = {
+    .read = flash_read,
+    .write = flash_write,
+    .erase = flash_erase,
+    .sync = NULL,
+    .get_block_count = flash_get_block_count
+};
+
+/* Use with file system */
+fs_mount(&flash_device);
+```
+
 ## Performance
 
 ### Memory Usage
@@ -628,6 +761,7 @@ tinyos-rtos/
 │   ├── sync.c               # Synchronization primitives & event groups
 │   ├── timer.c              # Software timers
 │   ├── power.c              # Power management
+│   ├── filesystem.c         # File system implementation
 │   └── security.c           # MPU & security
 ├── examples/
 │   ├── blink_led.c          # LED blink example
@@ -635,8 +769,11 @@ tinyos-rtos/
 │   ├── priority_adjustment.c # Dynamic priority demo
 │   ├── event_groups.c       # Event group synchronization demo
 │   ├── software_timers.c    # Software timer examples
-│   └── low_power.c          # Low-power mode examples
+│   ├── low_power.c          # Low-power mode examples
+│   └── filesystem_demo.c    # File system usage demo
 ├── drivers/                 # Hardware drivers
+│   ├── ramdisk.c            # RAM disk driver (for testing)
+│   └── ramdisk.h            # RAM disk header
 ├── docs/                    # Documentation
 ├── Makefile                 # Build system
 └── README.md
@@ -650,9 +787,9 @@ tinyos-rtos/
 - [x] **Software timers** - ✅ Implemented!
 - [x] **Low-power modes** - ✅ Implemented!
 
-### Version 1.2 (Planned)
+### Version 1.2 (In Progress)
+- [x] **File system** - ✅ Implemented!
 - [ ] Network stack integration
-- [ ] File system
 - [ ] OTA (Over-The-Air) updates
 - [ ] Debug trace functionality
 
@@ -727,10 +864,38 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.1.0
+Version: 1.2.0
 Updated: 2025
 
 ## Changelog
+
+### Version 1.2.0 (2025-12-05)
+- ✨ **New Feature**: File System
+  - `fs_init()` / `fs_format()` / `fs_mount()` / `fs_unmount()` - File system initialization and mounting
+  - `fs_open()` / `fs_close()` / `fs_read()` / `fs_write()` - File I/O operations
+  - `fs_seek()` / `fs_tell()` / `fs_size()` - File positioning and size
+  - `fs_remove()` / `fs_rename()` / `fs_truncate()` - File management
+  - `fs_stat()` - Get file statistics (size, type, timestamps)
+  - `fs_mkdir()` / `fs_rmdir()` - Directory creation and removal
+  - `fs_opendir()` / `fs_readdir()` / `fs_closedir()` - Directory browsing
+  - `fs_get_stats()` / `fs_get_free_space()` / `fs_get_total_space()` - File system statistics
+  - Storage abstraction layer with block device interface
+  - Simple inode-based file system design
+  - Up to 128 files/directories supported
+  - 512-byte block size
+  - Single block cache for performance
+  - Power-fail safe operations
+  - Wear leveling support for flash memory
+- 📦 **Added**: RAM disk driver for testing and development
+  - `ramdisk_init()` - Initialize RAM disk
+  - `ramdisk_get_device()` - Get block device interface
+  - 128KB RAM disk (256 blocks × 512 bytes)
+- 📚 **Added**: File system demo example (`filesystem_demo.c`)
+  - Demonstrates file creation, reading, writing
+  - Directory operations and listing
+  - File statistics and management
+  - Custom storage driver example
+- 📚 **Documentation**: Complete file system API reference and examples in README
 
 ### Version 1.1.0 (2025-12-04)
 - ✨ **New Feature**: Low-Power Modes

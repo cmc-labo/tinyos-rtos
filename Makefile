@@ -16,14 +16,16 @@ ARCH ?= cortex-m4
 SRC_DIR := src
 INC_DIR := include
 EXAMPLES_DIR := examples
+DRIVERS_DIR := drivers
 BUILD_DIR := build
 
 # Source files
 KERNEL_SRCS := $(wildcard $(SRC_DIR)/*.c)
+DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
 
-ALL_SRCS := $(KERNEL_SRCS) $(EXAMPLE_SRC)
+ALL_SRCS := $(KERNEL_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC)
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
 
 # Compiler flags
@@ -60,6 +62,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	@echo "Compiling $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile drivers
+$(BUILD_DIR)/%.o: $(DRIVERS_DIR)/%.c | $(BUILD_DIR)
+	@echo "Compiling driver: $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Compile example
 $(BUILD_DIR)/$(EXAMPLE).o: $(EXAMPLES_DIR)/$(EXAMPLE).c | $(BUILD_DIR)
 	@echo "Compiling example: $<"
@@ -84,13 +91,28 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 # Build examples
-.PHONY: example-blink example-iot
+.PHONY: example-blink example-iot example-priority example-events example-timers example-power example-fs
 
 example-blink:
 	$(MAKE) EXAMPLE=blink_led
 
 example-iot:
 	$(MAKE) EXAMPLE=iot_sensor
+
+example-priority:
+	$(MAKE) EXAMPLE=priority_adjustment
+
+example-events:
+	$(MAKE) EXAMPLE=event_groups
+
+example-timers:
+	$(MAKE) EXAMPLE=software_timers
+
+example-power:
+	$(MAKE) EXAMPLE=low_power
+
+example-fs:
+	$(MAKE) EXAMPLE=filesystem_demo
 
 # Help
 help:
@@ -100,6 +122,11 @@ help:
 	@echo "  all              - Build default configuration"
 	@echo "  example-blink    - Build LED blink example"
 	@echo "  example-iot      - Build IoT sensor example"
+	@echo "  example-priority - Build dynamic priority adjustment example"
+	@echo "  example-events   - Build event groups example"
+	@echo "  example-timers   - Build software timers example"
+	@echo "  example-power    - Build low-power modes example"
+	@echo "  example-fs       - Build file system example"
 	@echo "  clean            - Remove build artifacts"
 	@echo "  size             - Display memory usage"
 	@echo ""

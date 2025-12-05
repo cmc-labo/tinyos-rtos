@@ -19,7 +19,7 @@
 
 /* Version information */
 #define TINYOS_VERSION_MAJOR    1
-#define TINYOS_VERSION_MINOR    0
+#define TINYOS_VERSION_MINOR    2
 #define TINYOS_VERSION_PATCH    0
 
 /* Configuration */
@@ -451,5 +451,166 @@ uint32_t os_power_get_consumption_mw(void);
 
 /* Estimate battery life remaining (hours) */
 uint32_t os_power_estimate_battery_life_hours(void);
+
+/*
+ * File System API
+ */
+
+/* File system configuration */
+#define FS_MAX_OPEN_FILES       8       /* Maximum open files */
+#define FS_MAX_PATH_LENGTH      128     /* Maximum path length */
+#define FS_MAX_FILENAME_LENGTH  32      /* Maximum filename length */
+#define FS_BLOCK_SIZE           512     /* File system block size */
+#define FS_MAX_BLOCKS           1024    /* Maximum number of blocks */
+
+/* File open flags */
+#define FS_O_RDONLY             0x01    /* Read-only */
+#define FS_O_WRONLY             0x02    /* Write-only */
+#define FS_O_RDWR               0x03    /* Read-write */
+#define FS_O_CREAT              0x04    /* Create if not exists */
+#define FS_O_TRUNC              0x08    /* Truncate to zero length */
+#define FS_O_APPEND             0x10    /* Append mode */
+
+/* Seek origins */
+#define FS_SEEK_SET             0       /* Beginning of file */
+#define FS_SEEK_CUR             1       /* Current position */
+#define FS_SEEK_END             2       /* End of file */
+
+/* File types */
+#define FS_TYPE_REGULAR         1       /* Regular file */
+#define FS_TYPE_DIRECTORY       2       /* Directory */
+
+/* File descriptor */
+typedef int32_t fs_file_t;
+#define FS_INVALID_FD           (-1)
+
+/* Directory entry */
+typedef struct {
+    char name[FS_MAX_FILENAME_LENGTH];
+    uint8_t type;                       /* FS_TYPE_REGULAR or FS_TYPE_DIRECTORY */
+    uint32_t size;                      /* File size in bytes */
+    uint32_t mtime;                     /* Modification time (timestamp) */
+} fs_dirent_t;
+
+/* File statistics */
+typedef struct {
+    uint8_t type;                       /* File type */
+    uint32_t size;                      /* File size in bytes */
+    uint32_t blocks;                    /* Number of blocks used */
+    uint32_t mtime;                     /* Modification time */
+    uint32_t ctime;                     /* Creation time */
+} fs_stat_t;
+
+/* Directory handle */
+typedef struct fs_dir_s *fs_dir_t;
+
+/* File system statistics */
+typedef struct {
+    uint32_t total_blocks;              /* Total blocks */
+    uint32_t used_blocks;               /* Used blocks */
+    uint32_t free_blocks;               /* Free blocks */
+    uint32_t total_files;               /* Total files */
+    uint32_t total_dirs;                /* Total directories */
+    uint32_t block_size;                /* Block size in bytes */
+} fs_stats_t;
+
+/* Block device operations (storage abstraction) */
+typedef struct {
+    /* Read blocks from storage */
+    int (*read)(uint32_t block, void *buffer, uint32_t count);
+
+    /* Write blocks to storage */
+    int (*write)(uint32_t block, const void *buffer, uint32_t count);
+
+    /* Erase blocks (for flash memory) */
+    int (*erase)(uint32_t block, uint32_t count);
+
+    /* Sync/flush data to storage */
+    int (*sync)(void);
+
+    /* Get total block count */
+    uint32_t (*get_block_count)(void);
+} fs_block_device_t;
+
+/* Initialize file system */
+os_error_t fs_init(void);
+
+/* Format storage device */
+os_error_t fs_format(fs_block_device_t *device);
+
+/* Mount file system */
+os_error_t fs_mount(fs_block_device_t *device);
+
+/* Unmount file system */
+os_error_t fs_unmount(void);
+
+/* Check if file system is mounted */
+bool fs_is_mounted(void);
+
+/* File operations */
+
+/* Open file */
+fs_file_t fs_open(const char *path, uint32_t flags);
+
+/* Close file */
+os_error_t fs_close(fs_file_t fd);
+
+/* Read from file */
+int32_t fs_read(fs_file_t fd, void *buffer, size_t size);
+
+/* Write to file */
+int32_t fs_write(fs_file_t fd, const void *buffer, size_t size);
+
+/* Seek to position */
+int32_t fs_seek(fs_file_t fd, int32_t offset, int whence);
+
+/* Get current position */
+int32_t fs_tell(fs_file_t fd);
+
+/* Get file size */
+int32_t fs_size(fs_file_t fd);
+
+/* Sync file data to storage */
+os_error_t fs_sync(fs_file_t fd);
+
+/* Truncate file */
+os_error_t fs_truncate(fs_file_t fd, uint32_t size);
+
+/* Remove file */
+os_error_t fs_remove(const char *path);
+
+/* Rename file */
+os_error_t fs_rename(const char *old_path, const char *new_path);
+
+/* Get file statistics */
+os_error_t fs_stat(const char *path, fs_stat_t *stat);
+
+/* Directory operations */
+
+/* Create directory */
+os_error_t fs_mkdir(const char *path);
+
+/* Remove directory */
+os_error_t fs_rmdir(const char *path);
+
+/* Open directory */
+fs_dir_t fs_opendir(const char *path);
+
+/* Read directory entry */
+os_error_t fs_readdir(fs_dir_t dir, fs_dirent_t *entry);
+
+/* Close directory */
+os_error_t fs_closedir(fs_dir_t dir);
+
+/* File system information */
+
+/* Get file system statistics */
+os_error_t fs_get_stats(fs_stats_t *stats);
+
+/* Get free space in bytes */
+uint32_t fs_get_free_space(void);
+
+/* Get total space in bytes */
+uint32_t fs_get_total_space(void);
 
 #endif /* TINYOS_H */
