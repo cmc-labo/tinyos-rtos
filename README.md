@@ -315,6 +315,65 @@ uint32_t fs_get_free_space(void);
 uint32_t fs_get_total_space(void);
 ```
 
+### OTA (Over-The-Air) Updates ✨ NEW!
+
+```c
+#include "tinyos/ota.h"
+
+/* Initialize OTA subsystem */
+ota_error_t ota_init(const ota_config_t *config);
+
+/* Start firmware update from URL */
+ota_error_t ota_start_update(
+    const char *url,
+    ota_progress_callback_t callback,
+    void *user_data
+);
+
+/* Start firmware update from buffer */
+ota_error_t ota_start_update_from_buffer(
+    const uint8_t *firmware_data,
+    uint32_t size,
+    ota_progress_callback_t callback,
+    void *user_data
+);
+
+/* Finalize update and set boot partition */
+ota_error_t ota_finalize_update(void);
+
+/* Reboot to apply update */
+ota_error_t ota_reboot(void);
+
+/* Confirm successful boot (prevents rollback) */
+ota_error_t ota_confirm_boot(void);
+
+/* Rollback to previous firmware */
+ota_error_t ota_rollback(void);
+
+/* Check if rollback needed */
+bool ota_is_rollback_needed(void);
+
+/* Partition management */
+ota_partition_type_t ota_get_running_partition(void);
+ota_partition_type_t ota_get_update_partition(void);
+ota_error_t ota_get_partition_info(ota_partition_type_t type, ota_partition_info_t *info);
+
+/* Version information */
+uint32_t ota_get_running_version(void);
+uint32_t ota_get_partition_version(ota_partition_type_t type);
+int ota_compare_versions(uint32_t version1, uint32_t version2);
+
+/* Verification */
+ota_error_t ota_verify_partition(ota_partition_type_t type);
+ota_error_t ota_compute_crc32(ota_partition_type_t type, uint32_t *crc32);
+
+/* Utility functions */
+const char *ota_error_to_string(ota_error_t error);
+const char *ota_state_to_string(ota_state_t state);
+void ota_print_partition_table(void);
+void ota_print_status(void);
+```
+
 ### Network Stack (TCP/IP)
 
 ```c
@@ -752,6 +811,109 @@ fs_block_device_t flash_device = {
 fs_mount(&flash_device);
 ```
 
+### OTA (Over-The-Air) Firmware Updates ✨ NEW!
+
+```c
+#include "tinyos/ota.h"
+
+/* OTA Configuration */
+ota_config_t config = {
+    .server_url = "http://firmware.server.com",
+    .firmware_path = "/firmware.bin",
+    .timeout_ms = 30000,
+    .retry_count = 3,
+    .verify_signature = true,
+    .auto_rollback = true
+};
+
+int main(void) {
+    os_init();
+    os_mem_init();
+
+    /* Initialize OTA */
+    ota_init(&config);
+
+    /* Check current firmware version */
+    uint32_t current_version = ota_get_running_version();
+    printf("Current firmware: v%lu\n", current_version);
+
+    /* Start firmware update */
+    ota_error_t err = ota_start_update(
+        "http://192.168.1.100/firmware_v2.bin",
+        ota_progress_callback,
+        NULL
+    );
+
+    if (err == OTA_OK) {
+        /* Finalize and reboot */
+        ota_finalize_update();
+        ota_reboot();
+    }
+
+    os_start();
+}
+
+/* Progress callback */
+void ota_progress_callback(const ota_progress_t *progress, void *user_data) {
+    printf("OTA: %s - %d%%\n",
+           ota_state_to_string(progress->state),
+           progress->progress_percent);
+}
+
+/* After reboot, confirm boot was successful */
+void confirm_boot_task(void *param) {
+    /* Wait for system to stabilize */
+    os_task_delay(10000);
+
+    if (ota_is_rollback_needed()) {
+        /* Perform health checks */
+        if (system_is_healthy()) {
+            /* Confirm boot to prevent rollback */
+            ota_confirm_boot();
+            printf("Boot confirmed!\n");
+        } else {
+            /* Trigger rollback */
+            ota_rollback();
+        }
+    }
+}
+```
+
+**OTA Features:**
+- **A/B Partition Management**: Dual-partition firmware slots for safe updates
+- **Atomic Updates**: Complete update or rollback, no partial states
+- **Automatic Rollback**: Failed boots automatically revert to previous firmware
+- **Signature Verification**: Cryptographic verification of firmware integrity
+- **Progress Monitoring**: Real-time update progress callbacks
+- **Version Management**: Track and compare firmware versions
+- **Network Download**: HTTP-based firmware download support
+- **Manual Updates**: Support for custom download mechanisms
+
+**Partition Layout:**
+```
+┌──────────────────┬─────────┬────────────┐
+│ Bootloader       │  16 KB  │ 0x00000000 │
+├──────────────────┼─────────┼────────────┤
+│ Application A    │ 240 KB  │ 0x00004000 │
+├──────────────────┼─────────┼────────────┤
+│ Application B    │ 240 KB  │ 0x00040000 │
+├──────────────────┼─────────┼────────────┤
+│ Data (Boot Info) │  16 KB  │ 0x0007C000 │
+└──────────────────┴─────────┴────────────┘
+```
+
+**Update Flow:**
+```
+1. Download → 2. Write to Inactive Partition → 3. Verify
+                                                    ↓
+4. Reboot ← 5. Bootloader Selects New Partition ←──┘
+    ↓
+6. Application Confirms Boot (within timeout)
+    ↓
+    ├─ Success → Update Complete
+    └─ Failure → Automatic Rollback to Previous Version
+```
+
 ### Network Stack
 
 ```c
@@ -889,7 +1051,8 @@ tinyos-rtos/
 ├── include/
 │   ├── tinyos.h             # Public API
 │   └── tinyos/
-│       └── net.h            # Network stack API
+│       ├── net.h            # Network stack API
+│       └── ota.h            # ✨ NEW: OTA update API
 ├── src/
 │   ├── kernel.c             # Scheduler & task management
 │   ├── memory.c             # Memory allocator
@@ -898,6 +1061,8 @@ tinyos-rtos/
 │   ├── power.c              # Power management
 │   ├── filesystem.c         # File system implementation
 │   ├── security.c           # MPU & security
+│   ├── ota.c                # ✨ NEW: OTA update implementation
+│   ├── bootloader.c         # ✨ NEW: Bootloader for OTA
 │   └── net/                 # Network stack
 │       ├── network.c        # Network core & buffer management
 │       ├── ethernet.c       # Ethernet layer (Layer 2) & ARP
@@ -912,10 +1077,13 @@ tinyos-rtos/
 │   ├── software_timers.c    # Software timer examples
 │   ├── low_power.c          # Low-power mode examples
 │   ├── filesystem_demo.c    # File system usage demo
-│   └── network_demo.c       # Network stack demo (TCP/UDP/HTTP/Ping)
+│   ├── network_demo.c       # Network stack demo (TCP/UDP/HTTP/Ping)
+│   └── ota_demo.c           # ✨ NEW: OTA firmware update demo
 ├── drivers/                 # Hardware drivers
 │   ├── ramdisk.c            # RAM disk driver (for testing)
 │   ├── ramdisk.h            # RAM disk header
+│   ├── flash.c              # ✨ NEW: Flash memory driver
+│   ├── flash.h              # ✨ NEW: Flash driver header
 │   └── loopback_net.c       # Loopback network driver (for testing)
 ├── docs/                    # Documentation
 ├── Makefile                 # Build system
@@ -934,11 +1102,21 @@ tinyos-rtos/
 - [x] **File system** - ✅ Implemented!
 - [x] **Network stack** - ✅ Implemented!
 
-### Version 1.3 (Future)
-- [ ] OTA (Over-The-Air) updates
+### Version 1.3 (Completed)
+- [x] **OTA (Over-The-Air) Updates** - ✅ Implemented!
+  - A/B partition management
+  - Automatic rollback on failure
+  - Signature verification
+  - Boot confirmation mechanism
+  - Progress monitoring
+
+### Version 1.4 (Future)
+- [ ] MQTT Client for IoT messaging
+- [ ] CoAP protocol support
 - [ ] Debug trace functionality
 - [ ] DHCP client
 - [ ] Full TCP server support
+- [ ] Crypto library (AES, SHA-256)
 
 ## Benchmark
 
@@ -1015,6 +1193,54 @@ Version: 1.2.1
 Updated: 2025
 
 ## Changelog
+
+### Version 1.3.0 (2025-12-09)
+- ✨ **New Feature**: OTA (Over-The-Air) Firmware Updates
+  - **A/B Partition Management**: Dual firmware partitions for safe updates
+    - Bootloader partition: 16KB (0x00000000)
+    - Application A partition: 240KB (0x00004000)
+    - Application B partition: 240KB (0x00040000)
+    - Data partition: 16KB (0x0007C000) for boot information
+  - **`ota_init()`** - Initialize OTA subsystem with configuration
+  - **`ota_start_update()`** - Download and install firmware from HTTP URL
+  - **`ota_start_update_from_buffer()`** - Install firmware from memory buffer
+  - **`ota_finalize_update()`** - Prepare update for reboot
+  - **`ota_reboot()`** - Reboot to apply firmware update
+  - **`ota_confirm_boot()`** - Confirm successful boot to prevent rollback
+  - **`ota_rollback()`** - Manually trigger rollback to previous firmware
+  - **`ota_is_rollback_needed()`** - Check if boot confirmation is required
+- 🔄 **Automatic Rollback**: Failed boots automatically revert after 3 attempts
+- 🔐 **Signature Verification**: CRC32 and SHA-256 signature support
+- 📊 **Progress Monitoring**: Real-time update progress callbacks
+- 📦 **Firmware Image Format**: Structured header with version, CRC, signature
+- 🗂️ **Partition Management**:
+  - `ota_get_running_partition()` - Get currently running partition
+  - `ota_get_update_partition()` - Get partition for next update
+  - `ota_get_partition_info()` - Query partition details
+- 📈 **Version Management**:
+  - `ota_get_running_version()` - Get current firmware version
+  - `ota_get_partition_version()` - Get version of any partition
+  - `ota_compare_versions()` - Compare version numbers
+- ✅ **Verification Functions**:
+  - `ota_verify_partition()` - Verify firmware integrity
+  - `ota_compute_crc32()` - Calculate partition CRC32
+  - `ota_verify_signature()` - Cryptographic signature verification
+- 💾 **Flash Driver**: Generic flash memory interface with RAM simulation
+  - `flash_init()` / `flash_read()` / `flash_write()` / `flash_erase_sector()`
+  - Platform-specific weak symbols for hardware adaptation
+  - Write protection support
+  - 512KB total flash with 4KB sector size
+- 🚀 **Bootloader**: Simple bootloader for partition selection and verification
+  - Boot attempt tracking with automatic rollback
+  - Firmware verification before boot
+  - Boot information persistence in data partition
+- 📚 **Added**: OTA firmware update demo (`ota_demo.c`)
+  - Complete update workflow demonstration
+  - Progress monitoring example
+  - Boot confirmation implementation
+  - System health check example
+- 📚 **Documentation**: Comprehensive OTA API reference and examples in README
+- 🎯 **Memory footprint**: ~8KB ROM for OTA functionality
 
 ### Version 1.2.1 (2025-12-06)
 - ✨ **New Feature**: Network Stack (TCP/IP)
