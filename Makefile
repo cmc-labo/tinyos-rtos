@@ -91,7 +91,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 # Build examples
-.PHONY: example-blink example-iot example-priority example-events example-timers example-power example-fs
+.PHONY: example-blink example-iot example-priority example-events example-timers example-power example-fs example-network example-ota example-mqtt
 
 example-blink:
 	$(MAKE) EXAMPLE=blink_led
@@ -114,6 +114,15 @@ example-power:
 example-fs:
 	$(MAKE) EXAMPLE=filesystem_demo
 
+example-network:
+	$(MAKE) EXAMPLE=network_demo
+
+example-ota:
+	$(MAKE) EXAMPLE=ota_demo
+
+example-mqtt:
+	$(MAKE) EXAMPLE=mqtt_demo
+
 # Help
 help:
 	@echo "TinyOS Build System"
@@ -127,6 +136,9 @@ help:
 	@echo "  example-timers   - Build software timers example"
 	@echo "  example-power    - Build low-power modes example"
 	@echo "  example-fs       - Build file system example"
+	@echo "  example-network  - Build network stack example (TCP/UDP/HTTP/Ping)"
+	@echo "  example-ota      - Build OTA firmware update example"
+	@echo "  example-mqtt     - Build MQTT client example"
 	@echo "  clean            - Remove build artifacts"
 	@echo "  size             - Display memory usage"
 	@echo ""
