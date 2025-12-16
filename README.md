@@ -181,6 +181,12 @@ void os_semaphore_init(semaphore_t *sem, int32_t count);
 os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout);
 os_error_t os_semaphore_post(semaphore_t *sem);
 
+/* Condition Variables */
+void os_cond_init(cond_var_t *cond);
+os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout);
+os_error_t os_cond_signal(cond_var_t *cond);
+os_error_t os_cond_broadcast(cond_var_t *cond);
+
 /* Event Groups */
 void os_event_group_init(event_group_t *event_group);
 os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits);
@@ -558,6 +564,100 @@ void task_b(void *param) {
 
         os_task_delay(200);
     }
+}
+```
+
+### Condition Variables (Producer-Consumer Pattern)
+
+```c
+/* Shared buffer */
+#define BUFFER_SIZE 10
+
+typedef struct {
+    int buffer[BUFFER_SIZE];
+    int count;
+    int in, out;
+    mutex_t mutex;
+    cond_var_t not_empty;
+    cond_var_t not_full;
+} shared_buffer_t;
+
+static shared_buffer_t shared;
+
+/* Producer task */
+void producer_task(void *param) {
+    int item = 0;
+
+    while (1) {
+        item++;
+
+        os_mutex_lock(&shared.mutex, 0);
+
+        /* Wait if buffer is full */
+        while (shared.count == BUFFER_SIZE) {
+            os_cond_wait(&shared.not_full, &shared.mutex, 0);
+        }
+
+        /* Add item to buffer */
+        shared.buffer[shared.in] = item;
+        shared.in = (shared.in + 1) % BUFFER_SIZE;
+        shared.count++;
+
+        /* Signal that buffer is not empty */
+        os_cond_signal(&shared.not_empty);
+
+        os_mutex_unlock(&shared.mutex);
+
+        os_task_delay(100);
+    }
+}
+
+/* Consumer task */
+void consumer_task(void *param) {
+    int item;
+
+    while (1) {
+        os_mutex_lock(&shared.mutex, 0);
+
+        /* Wait if buffer is empty */
+        while (shared.count == 0) {
+            os_cond_wait(&shared.not_empty, &shared.mutex, 0);
+        }
+
+        /* Remove item from buffer */
+        item = shared.buffer[shared.out];
+        shared.out = (shared.out + 1) % BUFFER_SIZE;
+        shared.count--;
+
+        /* Signal that buffer is not full */
+        os_cond_signal(&shared.not_full);
+
+        os_mutex_unlock(&shared.mutex);
+
+        /* Process item */
+        process_item(item);
+
+        os_task_delay(200);
+    }
+}
+
+int main(void) {
+    os_init();
+
+    /* Initialize synchronization primitives */
+    os_mutex_init(&shared.mutex);
+    os_cond_init(&shared.not_empty);
+    os_cond_init(&shared.not_full);
+    shared.count = 0;
+    shared.in = 0;
+    shared.out = 0;
+
+    /* Create producer and consumer tasks */
+    static tcb_t producer, consumer;
+    os_task_create(&producer, "producer", producer_task, NULL, PRIORITY_NORMAL);
+    os_task_create(&consumer, "consumer", consumer_task, NULL, PRIORITY_NORMAL);
+
+    os_start();
 }
 ```
 
@@ -1187,6 +1287,7 @@ void sensor_task(void *param) {
 | Task (each) | - | 1KB |
 | Mutex | - | 12B |
 | Semaphore | - | 8B |
+| Condition Variable | - | 8B |
 | Message Queue (10 items) | - | 40B + data |
 
 ### Task Switching Time
@@ -1251,7 +1352,8 @@ tinyos-rtos/
 │   ├── filesystem_demo.c    # File system usage demo
 │   ├── network_demo.c       # Network stack demo (TCP/UDP/HTTP/Ping)
 │   ├── ota_demo.c           # OTA firmware update demo
-│   └── mqtt_demo.c          # ✨ NEW: MQTT client demo
+│   ├── mqtt_demo.c          # MQTT client demo
+│   └── condition_variable.c # ✨ NEW: Condition variable demo (producer-consumer)
 ├── drivers/                 # Hardware drivers
 │   ├── ramdisk.c            # RAM disk driver (for testing)
 │   ├── ramdisk.h            # RAM disk header
@@ -1292,7 +1394,15 @@ tinyos-rtos/
   - Auto-reconnect functionality
   - Callback-based event handling
 
-### Version 1.5 (Future)
+### Version 1.5 (Completed)
+- [x] **Condition Variables** - ✅ Implemented!
+  - Wait, signal, and broadcast operations
+  - Atomic mutex release and re-acquisition
+  - Timeout support
+  - Producer-consumer pattern support
+  - FIFO waiting queue
+
+### Version 1.6 (Future)
 - [ ] CoAP protocol support
 - [ ] Debug trace functionality
 - [ ] DHCP client
@@ -1371,10 +1481,30 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.4.0
+Version: 1.5.0
 Updated: 2025
 
 ## Changelog
+
+### Version 1.5.0 (2025-12-16)
+- ✨ **New Feature**: Condition Variables for Advanced Synchronization
+  - **`os_cond_init()`** - Initialize condition variable
+  - **`os_cond_wait()`** - Wait on condition variable (atomically releases mutex and waits)
+  - **`os_cond_signal()`** - Wake up one waiting task
+  - **`os_cond_broadcast()`** - Wake up all waiting tasks
+  - **Producer-Consumer Pattern**: Ideal for implementing producer-consumer queues
+  - **Thread Coordination**: Efficient task synchronization based on conditions
+  - **Atomic Operations**: Mutex is atomically released and re-acquired
+  - **Timeout Support**: Optional timeout for wait operations
+- 📦 **Added**: Condition variable demo (`condition_variable.c`)
+  - Complete producer-consumer pattern implementation
+  - Multiple producer and consumer tasks
+  - Proper use of condition variables with mutexes
+  - Statistics monitoring task
+  - Broadcast functionality demonstration
+- 📚 **Documentation**: Comprehensive condition variable API reference and examples in README
+- 🎯 **Memory footprint**: ~8B RAM per condition variable
+- 🔧 **Use Cases**: Producer-consumer queues, task coordination, resource pooling
 
 ### Version 1.4.0 (2025-12-12)
 - ✨ **New Feature**: MQTT Client for IoT Messaging

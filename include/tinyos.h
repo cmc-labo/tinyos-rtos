@@ -105,6 +105,12 @@ typedef struct {
 #define EVENT_WAIT_ANY    0x02    /* Wait for any specified bit */
 #define EVENT_CLEAR_ON_EXIT 0x04  /* Clear bits after waking up */
 
+/* Condition variable */
+typedef struct {
+    tcb_t *wait_queue;            /* Tasks waiting on condition */
+    volatile uint32_t waiting_count; /* Number of waiting tasks */
+} cond_var_t;
+
 /*
  * Core OS API
  */
@@ -226,6 +232,22 @@ os_error_t os_queue_receive(
     void *item,
     uint32_t timeout
 );
+
+/*
+ * Condition Variable API
+ */
+
+/* Initialize condition variable */
+void os_cond_init(cond_var_t *cond);
+
+/* Wait on condition variable (must be called with mutex locked) */
+os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout);
+
+/* Signal one waiting task */
+os_error_t os_cond_signal(cond_var_t *cond);
+
+/* Broadcast to all waiting tasks */
+os_error_t os_cond_broadcast(cond_var_t *cond);
 
 /*
  * Memory Management API
