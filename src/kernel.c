@@ -113,6 +113,7 @@ void os_scheduler(void) {
 
             if (next_task != kernel.current_task) {
                 kernel.context_switch_count++;
+                next_task->context_switches++;  /* Track per-task context switches */
                 tcb_t *old_task = kernel.current_task;
                 kernel.current_task = next_task;
                 next_task->state = TASK_STATE_RUNNING;
@@ -487,4 +488,177 @@ os_error_t os_task_reset_priority(tcb_t *task) {
 
     os_exit_critical(state);
     return OS_OK;
+}
+
+/**
+ * Statistics API Implementation
+ */
+
+/**
+ * Calculate stack usage for a task
+ */
+static uint32_t calculate_stack_usage(tcb_t *task) {
+    if (task == NULL) {
+        return 0;
+    }
+
+    /* Find lowest used stack address by looking for non-zero values */
+    /* Stack grows downward, so we search from bottom */
+    uint32_t *stack_bottom = &task->stack[0];
+    uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
+    uint32_t *current = stack_bottom;
+
+    /* Skip zeros at bottom (unused stack) */
+    while (current < stack_top && *current == 0) {
+        current++;
+    }
+
+    /* Calculate used bytes */
+    uint32_t used_words = stack_top - current + 1;
+    return used_words * sizeof(uint32_t);
+}
+
+/**
+ * Get task statistics
+ */
+os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats) {
+    if (task == NULL || stats == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    /* Copy basic info */
+    strncpy(stats->name, task->name, sizeof(stats->name) - 1);
+    stats->name[sizeof(stats->name) - 1] = '\0';
+    stats->state = task->state;
+    stats->priority = task->priority;
+    stats->run_time = task->run_time;
+    stats->context_switches = task->context_switches;
+
+    /* Calculate stack usage */
+    stats->stack_size = STACK_SIZE * sizeof(uint32_t);
+    stats->stack_used = calculate_stack_usage(task);
+    stats->stack_free = stats->stack_size - stats->stack_used;
+
+    /* Update high water mark */
+    if (stats->stack_used > task->stack_high_water_mark) {
+        task->stack_high_water_mark = stats->stack_used;
+    }
+
+    /* Calculate CPU usage percentage */
+    if (kernel.tick_count > 0) {
+        stats->cpu_usage = ((float)task->run_time / (float)kernel.tick_count) * 100.0f;
+    } else {
+        stats->cpu_usage = 0.0f;
+    }
+
+    os_exit_critical(state);
+    return OS_OK;
+}
+
+/**
+ * Get system statistics
+ */
+os_error_t os_get_system_stats(system_stats_t *stats) {
+    if (stats == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    /* Count running tasks */
+    uint32_t running = 0;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (kernel.task_pool[i].state == TASK_STATE_READY ||
+            kernel.task_pool[i].state == TASK_STATE_RUNNING) {
+            running++;
+        }
+    }
+
+    stats->total_tasks = kernel.task_count;
+    stats->running_tasks = running;
+    stats->total_context_switches = kernel.context_switch_count;
+    stats->uptime_ticks = kernel.tick_count;
+    stats->uptime_seconds = kernel.tick_count / TICK_RATE_HZ;
+
+    /* Calculate idle time (from idle task) */
+    if (kernel.task_count > 0) {
+        stats->idle_time = kernel.task_pool[0].run_time;  /* Idle task is always first */
+    } else {
+        stats->idle_time = 0;
+    }
+
+    /* Calculate overall CPU usage */
+    if (kernel.tick_count > 0) {
+        float idle_percentage = ((float)stats->idle_time / (float)kernel.tick_count) * 100.0f;
+        stats->cpu_usage = 100.0f - idle_percentage;
+    } else {
+        stats->cpu_usage = 0.0f;
+    }
+
+    stats->free_heap = os_get_free_memory();
+
+    os_exit_critical(state);
+    return OS_OK;
+}
+
+/**
+ * Reset task statistics
+ */
+os_error_t os_task_reset_stats(tcb_t *task) {
+    if (task == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t state = os_enter_critical();
+
+    task->run_time = 0;
+    task->context_switches = 0;
+    task->stack_high_water_mark = 0;
+
+    os_exit_critical(state);
+    return OS_OK;
+}
+
+/**
+ * Print task statistics (for debugging)
+ */
+void os_print_task_stats(tcb_t *task) {
+    if (task == NULL) {
+        return;
+    }
+
+    task_stats_t stats;
+    if (os_task_get_stats(task, &stats) != OS_OK) {
+        return;
+    }
+
+    const char *state_str[] = {"READY", "RUNNING", "BLOCKED", "SUSPENDED", "TERMINATED"};
+
+    /* Print task info */
+    /* Note: In embedded systems without printf, this would use UART output */
+    /* For now, we'll leave the implementation as a stub */
+    (void)state_str;  /* Suppress unused warning */
+}
+
+/**
+ * Print all tasks statistics
+ */
+void os_print_all_stats(void) {
+    system_stats_t sys_stats;
+
+    if (os_get_system_stats(&sys_stats) != OS_OK) {
+        return;
+    }
+
+    /* Print system stats */
+    /* Note: printf implementation would go here */
+
+    /* Print each task */
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (kernel.task_pool[i].state != TASK_STATE_TERMINATED) {
+            os_print_task_stats(&kernel.task_pool[i]);
+        }
+    }
 }

@@ -57,8 +57,35 @@ typedef struct task_control_block {
     void (*entry_point)(void *);        /* Entry function */
     void *param;                        /* Task parameter */
     uint32_t run_time;                  /* Total run time (ticks) */
+    uint32_t context_switches;          /* Number of context switches */
+    uint32_t stack_high_water_mark;     /* Maximum stack usage (bytes) */
     struct task_control_block *next;    /* Next task in queue */
 } tcb_t;
+
+/* Task statistics */
+typedef struct {
+    char name[16];                      /* Task name */
+    task_state_t state;                 /* Current state */
+    task_priority_t priority;           /* Current priority */
+    uint32_t run_time;                  /* Total run time (ticks) */
+    uint32_t context_switches;          /* Number of context switches */
+    uint32_t stack_size;                /* Total stack size (bytes) */
+    uint32_t stack_used;                /* Stack used (bytes) */
+    uint32_t stack_free;                /* Stack free (bytes) */
+    float cpu_usage;                    /* CPU usage percentage (0.0 - 100.0) */
+} task_stats_t;
+
+/* System statistics */
+typedef struct {
+    uint32_t total_tasks;               /* Total number of tasks */
+    uint32_t running_tasks;             /* Number of running/ready tasks */
+    uint32_t total_context_switches;    /* Total context switches */
+    uint32_t uptime_ticks;              /* System uptime in ticks */
+    uint32_t uptime_seconds;            /* System uptime in seconds */
+    uint32_t idle_time;                 /* Idle time (ticks) */
+    float cpu_usage;                    /* Overall CPU usage percentage */
+    size_t free_heap;                   /* Free heap memory (bytes) */
+} system_stats_t;
 
 /* Return codes */
 typedef enum {
@@ -261,6 +288,25 @@ void os_free(void *ptr);
 
 /* Get free memory */
 size_t os_get_free_memory(void);
+
+/*
+ * Statistics API
+ */
+
+/* Get task statistics */
+os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats);
+
+/* Get system statistics */
+os_error_t os_get_system_stats(system_stats_t *stats);
+
+/* Reset task statistics */
+os_error_t os_task_reset_stats(tcb_t *task);
+
+/* Print task statistics (for debugging) */
+void os_print_task_stats(tcb_t *task);
+
+/* Print all tasks statistics */
+void os_print_all_stats(void);
 
 /*
  * Time Management API

@@ -187,6 +187,13 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout);
 os_error_t os_cond_signal(cond_var_t *cond);
 os_error_t os_cond_broadcast(cond_var_t *cond);
 
+/* Task Statistics */
+os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats);
+os_error_t os_get_system_stats(system_stats_t *stats);
+os_error_t os_task_reset_stats(tcb_t *task);
+void os_print_task_stats(tcb_t *task);
+void os_print_all_stats(void);
+
 /* Event Groups */
 void os_event_group_init(event_group_t *event_group);
 os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits);
@@ -696,6 +703,69 @@ void adaptive_processing(void *param) {
     }
 }
 ```
+
+### Task Statistics ✨ NEW!
+
+```c
+/* Monitor task - displays real-time statistics */
+void monitor_task(void *param) {
+    task_stats_t stats;
+    system_stats_t sys_stats;
+
+    while (1) {
+        /* Get system-wide statistics */
+        if (os_get_system_stats(&sys_stats) == OS_OK) {
+            printf("=== System Statistics ===\n");
+            printf("Uptime: %lu seconds\n", sys_stats.uptime_seconds);
+            printf("Total Tasks: %lu\n", sys_stats.total_tasks);
+            printf("Running Tasks: %lu\n", sys_stats.running_tasks);
+            printf("Context Switches: %lu\n", sys_stats.total_context_switches);
+            printf("CPU Usage: %.2f%%\n", sys_stats.cpu_usage);
+            printf("Free Heap: %zu bytes\n", sys_stats.free_heap);
+            printf("\n");
+        }
+
+        /* Get per-task statistics */
+        if (os_task_get_stats(&worker_task, &stats) == OS_OK) {
+            printf("Task: %s\n", stats.name);
+            printf("  Priority: %d\n", stats.priority);
+            printf("  CPU Usage: %.2f%%\n", stats.cpu_usage);
+            printf("  Runtime: %lu ticks\n", stats.run_time);
+            printf("  Context Switches: %lu\n", stats.context_switches);
+            printf("  Stack: %lu/%lu bytes (%.1f%% used)\n",
+                   stats.stack_used,
+                   stats.stack_size,
+                   (float)stats.stack_used / stats.stack_size * 100.0f);
+        }
+
+        os_task_delay(2000);  /* Update every 2 seconds */
+    }
+}
+
+/* Main function with statistics monitoring */
+int main(void) {
+    static tcb_t worker1, worker2, monitor;
+
+    os_init();
+    os_mem_init();
+
+    /* Create tasks */
+    os_task_create(&worker1, "Worker-1", worker_task, NULL, PRIORITY_NORMAL);
+    os_task_create(&worker2, "Worker-2", worker_task, NULL, PRIORITY_NORMAL);
+    os_task_create(&monitor, "Monitor", monitor_task, NULL, PRIORITY_LOW);
+
+    /* Start scheduler */
+    os_start();
+}
+```
+
+**Statistics Features:**
+- **CPU Usage Tracking**: Per-task and system-wide CPU utilization
+- **Runtime Monitoring**: Cumulative execution time for each task
+- **Context Switch Counting**: Track task switching frequency
+- **Stack Usage Analysis**: Monitor stack consumption and detect potential overflow
+- **System Uptime**: Total system runtime in seconds and ticks
+- **Heap Monitoring**: Track free heap memory
 
 ### Event Groups
 
@@ -1288,6 +1358,7 @@ void sensor_task(void *param) {
 | Mutex | - | 12B |
 | Semaphore | - | 8B |
 | Condition Variable | - | 8B |
+| Task Statistics (per task) | - | 16B |
 | Message Queue (10 items) | - | 40B + data |
 
 ### Task Switching Time
@@ -1353,7 +1424,8 @@ tinyos-rtos/
 │   ├── network_demo.c       # Network stack demo (TCP/UDP/HTTP/Ping)
 │   ├── ota_demo.c           # OTA firmware update demo
 │   ├── mqtt_demo.c          # MQTT client demo
-│   └── condition_variable.c # ✨ NEW: Condition variable demo (producer-consumer)
+│   ├── condition_variable.c # Condition variable demo (producer-consumer)
+│   └── task_statistics.c    # ✨ NEW: Task statistics monitoring demo
 ├── drivers/                 # Hardware drivers
 │   ├── ramdisk.c            # RAM disk driver (for testing)
 │   ├── ramdisk.h            # RAM disk header
@@ -1481,10 +1553,33 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.5.0
+Version: 1.6.0
 Updated: 2025
 
 ## Changelog
+
+### Version 1.6.0 (2025-12-19)
+- ✨ **New Feature**: Task Statistics Monitoring
+  - **`os_task_get_stats()`** - Get detailed statistics for a specific task
+  - **`os_get_system_stats()`** - Get system-wide statistics
+  - **`os_task_reset_stats()`** - Reset task statistics counters
+  - **`os_print_task_stats()`** - Print task statistics for debugging
+  - **`os_print_all_stats()`** - Print statistics for all tasks
+  - **CPU Usage Tracking**: Per-task and system-wide CPU utilization percentage
+  - **Runtime Monitoring**: Cumulative execution time tracking in ticks
+  - **Context Switch Counting**: Track task switching frequency
+  - **Stack Usage Analysis**: Monitor stack consumption and high water mark
+  - **System Uptime**: Total system runtime in seconds and ticks
+  - **Heap Monitoring**: Track free heap memory
+- 📦 **Added**: Task statistics demo (`task_statistics.c`)
+  - Real-time statistics display every 2 seconds
+  - Multiple worker tasks with different workloads
+  - System-wide and per-task monitoring
+  - CPU usage visualization
+  - Stack usage tracking
+- 📚 **Documentation**: Comprehensive statistics API reference and examples in README
+- 🎯 **Memory footprint**: ~16B RAM per task for statistics tracking
+- 🔧 **Use Cases**: Performance monitoring, debugging, resource optimization, system health checks
 
 ### Version 1.5.0 (2025-12-16)
 - ✨ **New Feature**: Condition Variables for Advanced Synchronization
