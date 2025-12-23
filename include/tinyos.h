@@ -681,4 +681,17 @@ uint32_t fs_get_free_space(void);
 /* Get total space in bytes */
 uint32_t fs_get_total_space(void);
 
+/*
+ * Debug Helper API
+ */
+
+/* Convert error code to human-readable string */
+const char *os_error_to_string(os_error_t error);
+
+/* Convert task state to human-readable string */
+const char *os_task_state_to_string(task_state_t state);
+
+/* Get priority level name */
+const char *os_priority_name(task_priority_t priority);
+
 #endif /* TINYOS_H */

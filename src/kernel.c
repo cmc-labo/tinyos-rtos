@@ -662,3 +662,68 @@ void os_print_all_stats(void) {
         }
     }
 }
+
+/**
+ * Debug Helper Functions
+ */
+
+/**
+ * Convert error code to human-readable string
+ */
+const char *os_error_to_string(os_error_t error) {
+    switch (error) {
+        case OS_OK:
+            return "Success";
+        case OS_ERROR:
+            return "Error";
+        case OS_ERROR_NO_MEMORY:
+            return "Out of memory";
+        case OS_ERROR_INVALID_PARAM:
+            return "Invalid parameter";
+        case OS_ERROR_TIMEOUT:
+            return "Timeout";
+        case OS_ERROR_PERMISSION_DENIED:
+            return "Permission denied";
+        default:
+            return "Unknown error";
+    }
+}
+
+/**
+ * Convert task state to human-readable string
+ */
+const char *os_task_state_to_string(task_state_t state) {
+    switch (state) {
+        case TASK_STATE_READY:
+            return "Ready";
+        case TASK_STATE_RUNNING:
+            return "Running";
+        case TASK_STATE_BLOCKED:
+            return "Blocked";
+        case TASK_STATE_SUSPENDED:
+            return "Suspended";
+        case TASK_STATE_TERMINATED:
+            return "Terminated";
+        default:
+            return "Unknown";
+    }
+}
+
+/**
+ * Get priority level name
+ */
+const char *os_priority_name(task_priority_t priority) {
+    if (priority == PRIORITY_CRITICAL) {
+        return "Critical";
+    } else if (priority <= PRIORITY_HIGH) {
+        return "High";
+    } else if (priority <= PRIORITY_NORMAL) {
+        return "Normal";
+    } else if (priority <= PRIORITY_LOW) {
+        return "Low";
+    } else if (priority == PRIORITY_IDLE) {
+        return "Idle";
+    } else {
+        return "Custom";
+    }
+}
