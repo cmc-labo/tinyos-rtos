@@ -694,4 +694,10 @@ const char *os_task_state_to_string(task_state_t state);
 /* Get priority level name */
 const char *os_priority_name(task_priority_t priority);
 
+/* Get version string (e.g., "1.2.0") */
+const char *os_get_version_string(void);
+
+/* Check if scheduler is running */
+bool os_is_running(void);
+
 #endif /* TINYOS_H */

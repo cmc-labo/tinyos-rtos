@@ -727,3 +727,18 @@ const char *os_priority_name(task_priority_t priority) {
         return "Custom";
     }
 }
+
+/**
+ * Get version string
+ */
+const char *os_get_version_string(void) {
+    /* Return compile-time version string */
+    return "1.2.0";
+}
+
+/**
+ * Check if scheduler is running
+ */
+bool os_is_running(void) {
+    return kernel.scheduler_running;
+}
