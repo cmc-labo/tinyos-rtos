@@ -1,5 +1,99 @@
 # Watchdog Timer Guide
 
+## Quick Start
+
+Here's a minimal example to get started with the watchdog timer:
+
+```c
+#include "tinyos.h"
+#include "tinyos/watchdog.h"
+
+/* Watchdog callback (optional) */
+void my_wdt_callback(wdt_reset_reason_t reason, tcb_t *task) {
+    printf("Watchdog timeout! Reason: %s\n", wdt_reset_reason_to_string(reason));
+}
+
+/* Task that feeds the watchdog */
+void feeder_task(void *param) {
+    while (1) {
+        os_task_delay(500);  /* Wait 500ms */
+        wdt_feed();          /* Feed watchdog */
+    }
+}
+
+int main(void) {
+    /* Initialize OS */
+    os_init();
+
+    /* Quick watchdog initialization (2 second timeout) */
+    WDT_QUICK_INIT(WDT_TIMEOUT_2S, my_wdt_callback);
+
+    /* Create feeder task */
+    static tcb_t feeder;
+    os_task_create(&feeder, "feeder", feeder_task, NULL, PRIORITY_HIGH);
+
+    /* Start OS */
+    os_start();
+    return 0;
+}
+```
+
+That's it! The watchdog will reset your system if not fed within 2 seconds.
+
+### Common Usage Patterns
+
+**1. Simple Watchdog with Convenience Macros:**
+
+```c
+/* Initialize with default settings */
+WDT_QUICK_INIT(WDT_TIMEOUT_2S, NULL);
+
+/* Safe feed (checks if initialized) */
+WDT_SAFE_FEED();
+
+/* Calculate recommended feed interval */
+uint32_t feed_interval = WDT_FEED_INTERVAL(2000);  /* Returns 1000ms */
+```
+
+**2. Monitor a Specific Task:**
+
+```c
+static tcb_t my_task;
+
+/* Create and register task */
+os_task_create(&my_task, "worker", worker_func, NULL, PRIORITY_NORMAL);
+WDT_REGISTER_TASK(my_task, 1000);  /* 1 second timeout */
+
+/* In task function */
+void worker_func(void *param) {
+    while (1) {
+        do_work();
+        WDT_FEED_TASK(my_task);  /* Feed task watchdog */
+        os_task_delay(500);
+    }
+}
+```
+
+**3. Debug Mode (No Reset):**
+
+```c
+/* Use debug config - logs timeout but doesn't reset */
+wdt_config_t config = WDT_DEBUG_CONFIG(WDT_TIMEOUT_5S, my_callback);
+wdt_init(&config);
+
+/* Enable debug tracing (compile with -DWDT_DEBUG) */
+WDT_DEBUG_FEED();         /* Traces file:line when feeding */
+WDT_DEBUG_STATUS();       /* Prints current status */
+```
+
+**4. Production Mode (Aggressive):**
+
+```c
+/* Production config - automatic reset on any timeout */
+wdt_config_t config = WDT_PRODUCTION_CONFIG(WDT_TIMEOUT_2S, save_and_reset);
+wdt_init(&config);
+```
+
 ## Overview
 
 The Watchdog Timer (WDT) module provides system and task monitoring capabilities to detect and recover from software hangs or crashes. TinyOS supports both hardware and software watchdog timers.

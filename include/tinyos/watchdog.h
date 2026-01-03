@@ -26,6 +26,171 @@ extern "C" {
 /* Forward declaration */
 typedef struct tcb tcb_t;
 
+/* ========================================================================
+ * Convenience Macros
+ * ======================================================================== */
+
+/**
+ * @brief Quick initialization with default settings
+ *
+ * Usage:
+ *   WDT_QUICK_INIT(2000, my_callback);
+ */
+#define WDT_QUICK_INIT(timeout_ms, callback_func) do { \
+    wdt_config_t _cfg = WDT_DEFAULT_CONFIG(timeout_ms, callback_func); \
+    wdt_init(&_cfg); \
+} while(0)
+
+/**
+ * @brief Quick task registration
+ *
+ * Usage:
+ *   WDT_REGISTER_TASK(my_task, 1000);
+ */
+#define WDT_REGISTER_TASK(task, timeout) \
+    wdt_register_task(&(task), (timeout))
+
+/**
+ * @brief Quick task feed
+ *
+ * Usage:
+ *   WDT_FEED_TASK(my_task);
+ */
+#define WDT_FEED_TASK(task) \
+    wdt_feed_task(&(task))
+
+/**
+ * @brief Safe watchdog feed (checks if initialized)
+ */
+#define WDT_SAFE_FEED() do { \
+    if (wdt_is_initialized()) wdt_feed(); \
+} while(0)
+
+/**
+ * @brief Watchdog feed with error checking
+ */
+#define WDT_FEED_OR_WARN() do { \
+    wdt_error_t _err = wdt_feed(); \
+    if (_err != WDT_OK) { \
+        printf("WDT feed failed: %s\n", wdt_error_to_string(_err)); \
+    } \
+} while(0)
+
+/* ========================================================================
+ * Debug Helper Macros
+ * ======================================================================== */
+
+#ifdef WDT_DEBUG
+/**
+ * @brief Debug trace for watchdog feed
+ */
+#define WDT_DEBUG_FEED() do { \
+    printf("[WDT] Feed at %s:%d\n", __FILE__, __LINE__); \
+    wdt_feed(); \
+} while(0)
+
+/**
+ * @brief Debug trace for task feed
+ */
+#define WDT_DEBUG_FEED_TASK(task) do { \
+    printf("[WDT] Task feed at %s:%d, task=%p\n", __FILE__, __LINE__, (void*)(task)); \
+    wdt_feed_task(task); \
+} while(0)
+
+/**
+ * @brief Print compact status line for debugging
+ */
+#define WDT_DEBUG_STATUS() do { \
+    printf("[WDT] Enabled=%d, Timeout=%lums, Remaining=%lums\n", \
+           wdt_is_enabled(), (unsigned long)wdt_get_timeout(), \
+           (unsigned long)wdt_get_time_remaining()); \
+} while(0)
+
+#else
+#define WDT_DEBUG_FEED() wdt_feed()
+#define WDT_DEBUG_FEED_TASK(task) wdt_feed_task(task)
+#define WDT_DEBUG_STATUS() do {} while(0)
+#endif /* WDT_DEBUG */
+
+/**
+ * @brief Assert-style watchdog check
+ *
+ * Usage in debug builds to ensure watchdog is responsive
+ */
+#define WDT_ASSERT_RESPONSIVE() do { \
+    if (wdt_is_initialized() && wdt_is_enabled()) { \
+        uint32_t remaining = wdt_get_time_remaining(); \
+        if (remaining < 100) { \
+            printf("WARNING: Watchdog critical! %lums remaining\n", \
+                   (unsigned long)remaining); \
+        } \
+    } \
+} while(0)
+
+/**
+ * @brief Convert milliseconds to optimal feed interval (50%)
+ */
+#define WDT_FEED_INTERVAL(timeout_ms) ((timeout_ms) / 2)
+
+/**
+ * @brief Convert milliseconds to conservative feed interval (33%)
+ */
+#define WDT_SAFE_FEED_INTERVAL(timeout_ms) ((timeout_ms) / 3)
+
+/**
+ * @brief Default configuration preset
+ */
+#define WDT_DEFAULT_CONFIG(timeout, cb) { \
+    .type = WDT_TYPE_BOTH, \
+    .timeout_ms = (timeout), \
+    .auto_start = true, \
+    .enable_reset = true, \
+    .callback = (cb) \
+}
+
+/**
+ * @brief Debug-friendly configuration (no auto-reset)
+ */
+#define WDT_DEBUG_CONFIG(timeout, cb) { \
+    .type = WDT_TYPE_SOFTWARE, \
+    .timeout_ms = (timeout), \
+    .auto_start = true, \
+    .enable_reset = false, \
+    .callback = (cb) \
+}
+
+/**
+ * @brief Production configuration (aggressive)
+ */
+#define WDT_PRODUCTION_CONFIG(timeout, cb) { \
+    .type = WDT_TYPE_BOTH, \
+    .timeout_ms = (timeout), \
+    .auto_start = true, \
+    .enable_reset = true, \
+    .callback = (cb) \
+}
+
+/**
+ * @brief Software-only configuration
+ */
+#define WDT_SOFTWARE_ONLY_CONFIG(timeout, cb) { \
+    .type = WDT_TYPE_SOFTWARE, \
+    .timeout_ms = (timeout), \
+    .auto_start = true, \
+    .enable_reset = true, \
+    .callback = (cb) \
+}
+
+/* Common timeout values (milliseconds) */
+#define WDT_TIMEOUT_100MS   100
+#define WDT_TIMEOUT_500MS   500
+#define WDT_TIMEOUT_1S      1000
+#define WDT_TIMEOUT_2S      2000
+#define WDT_TIMEOUT_5S      5000
+#define WDT_TIMEOUT_10S     10000
+#define WDT_TIMEOUT_30S     30000
+#define WDT_TIMEOUT_60S     60000
+
 /**
  * @brief Watchdog error codes
  */
