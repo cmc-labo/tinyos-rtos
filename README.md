@@ -474,6 +474,53 @@ const char *mqtt_error_to_string(mqtt_error_t error);
 const char *mqtt_state_to_string(mqtt_state_t state);
 ```
 
+### Watchdog Timer ✨ NEW!
+
+```c
+#include "tinyos/watchdog.h"
+
+/* Initialize watchdog */
+wdt_error_t wdt_init(const wdt_config_t *config);
+wdt_error_t wdt_deinit(void);
+
+/* Watchdog control */
+wdt_error_t wdt_start(void);
+wdt_error_t wdt_stop(void);
+wdt_error_t wdt_feed(void);                    /* Must be called periodically */
+wdt_error_t wdt_set_timeout(uint32_t timeout_ms);
+uint32_t wdt_get_timeout(void);
+wdt_error_t wdt_enable(void);
+wdt_error_t wdt_disable(void);
+bool wdt_is_enabled(void);
+
+/* Task watchdog monitoring */
+wdt_error_t wdt_register_task(tcb_t *task, uint32_t timeout_ms);
+wdt_error_t wdt_unregister_task(tcb_t *task);
+wdt_error_t wdt_feed_task(tcb_t *task);
+wdt_error_t wdt_enable_task(tcb_t *task);
+wdt_error_t wdt_disable_task(tcb_t *task);
+bool wdt_is_task_registered(tcb_t *task);
+
+/* Status and statistics */
+wdt_error_t wdt_get_status(wdt_status_t *status);
+wdt_error_t wdt_get_stats(wdt_stats_t *stats);
+wdt_error_t wdt_reset_stats(void);
+wdt_reset_reason_t wdt_get_last_reset_reason(void);
+uint32_t wdt_get_time_remaining(void);
+
+/* Utility functions */
+const char *wdt_error_to_string(wdt_error_t error);
+const char *wdt_reset_reason_to_string(wdt_reset_reason_t reason);
+void wdt_print_status(void);
+void wdt_print_stats(void);
+void wdt_print_registered_tasks(void);
+
+/* Hardware-specific */
+void wdt_trigger_reset(void);                  /* Immediate reset */
+bool wdt_was_reset_by_watchdog(void);
+void wdt_clear_reset_flag(void);
+```
+
 ### Memory Management
 
 ```c
