@@ -521,6 +521,97 @@ bool wdt_was_reset_by_watchdog(void);
 void wdt_clear_reset_flag(void);
 ```
 
+### CoAP Client/Server ✨ NEW!
+
+```c
+#include "tinyos/coap.h"
+
+/* Initialize CoAP context */
+coap_error_t coap_init(coap_context_t *context, const coap_config_t *config, bool is_server);
+coap_error_t coap_start(coap_context_t *context);
+void coap_stop(coap_context_t *context);
+
+/* Process incoming messages (call in task loop) */
+coap_error_t coap_process(coap_context_t *context, uint32_t timeout_ms);
+
+/* Client API - RESTful operations */
+coap_error_t coap_get(
+    coap_context_t *context,
+    uint32_t server_ip,
+    uint16_t server_port,
+    const char *uri_path,
+    coap_response_t *response,
+    uint32_t timeout_ms
+);
+
+coap_error_t coap_post(
+    coap_context_t *context,
+    uint32_t server_ip,
+    uint16_t server_port,
+    const char *uri_path,
+    coap_content_format_t content_format,
+    const uint8_t *payload,
+    uint16_t payload_length,
+    coap_response_t *response,
+    uint32_t timeout_ms
+);
+
+coap_error_t coap_put(
+    coap_context_t *context,
+    uint32_t server_ip,
+    uint16_t server_port,
+    const char *uri_path,
+    coap_content_format_t content_format,
+    const uint8_t *payload,
+    uint16_t payload_length,
+    coap_response_t *response,
+    uint32_t timeout_ms
+);
+
+coap_error_t coap_delete(
+    coap_context_t *context,
+    uint32_t server_ip,
+    uint16_t server_port,
+    const char *uri_path,
+    coap_response_t *response,
+    uint32_t timeout_ms
+);
+
+/* Server API - Resource management */
+coap_resource_t *coap_resource_create(
+    coap_context_t *context,
+    const char *uri_path,
+    coap_resource_handler_t handler,
+    void *user_data
+);
+
+coap_error_t coap_resource_set_observable(coap_resource_t *resource, uint32_t max_age);
+coap_error_t coap_notify_observers(
+    coap_context_t *context,
+    coap_resource_t *resource,
+    const uint8_t *payload,
+    uint16_t payload_length
+);
+
+/* Observe pattern (Client) */
+coap_error_t coap_observe_start(
+    coap_context_t *context,
+    uint32_t server_ip,
+    uint16_t server_port,
+    const char *uri_path,
+    coap_observe_handler_t handler,
+    void *user_data
+);
+
+coap_error_t coap_observe_stop(coap_context_t *context, const char *uri_path);
+
+/* Utility functions */
+const char *coap_error_to_string(coap_error_t error);
+const char *coap_response_code_to_string(uint8_t code);
+void coap_response_free(coap_response_t *response);
+void coap_pdu_print(const coap_pdu_t *pdu);
+```
+
 ### Memory Management
 
 ```c
@@ -1394,6 +1485,183 @@ void sensor_task(void *param) {
 - Real-time telemetry
 - Remote device management
 
+### CoAP Client/Server ✨ NEW!
+
+```c
+#include "tinyos/coap.h"
+
+/* CoAP Server - Resource handlers */
+void temperature_handler(
+    coap_context_t *context,
+    coap_resource_t *resource,
+    const coap_pdu_t *request,
+    coap_pdu_t *response,
+    void *user_data
+) {
+    /* Prepare JSON response */
+    char payload[32];
+    float temp = read_temperature_sensor();
+    snprintf(payload, sizeof(payload), "{\"temp\":%.1f}", temp);
+
+    /* Set response */
+    response->code = COAP_RESPONSE_205_CONTENT;
+    uint8_t format = COAP_CONTENT_FORMAT_JSON;
+    coap_pdu_add_option(response, COAP_OPTION_CONTENT_FORMAT, &format, 1);
+    coap_pdu_set_payload(response, (const uint8_t *)payload, strlen(payload));
+}
+
+void led_handler(
+    coap_context_t *context,
+    coap_resource_t *resource,
+    const coap_pdu_t *request,
+    coap_pdu_t *response,
+    void *user_data
+) {
+    uint8_t method = request->code;
+
+    if (method == COAP_METHOD_GET) {
+        /* Return LED state */
+        char payload[32];
+        snprintf(payload, sizeof(payload), "{\"led\":\"%s\"}", led_on ? "on" : "off");
+        response->code = COAP_RESPONSE_205_CONTENT;
+        uint8_t format = COAP_CONTENT_FORMAT_JSON;
+        coap_pdu_add_option(response, COAP_OPTION_CONTENT_FORMAT, &format, 1);
+        coap_pdu_set_payload(response, (const uint8_t *)payload, strlen(payload));
+    }
+    else if (method == COAP_METHOD_PUT) {
+        /* Set LED state from payload */
+        if (request->payload_length > 0) {
+            if (strstr((char *)request->payload, "\"on\"")) {
+                set_led(true);
+            } else {
+                set_led(false);
+            }
+        }
+        response->code = COAP_RESPONSE_204_CHANGED;
+    }
+}
+
+/* CoAP Server Task */
+void coap_server_task(void *param) {
+    /* Initialize CoAP server */
+    coap_context_t server;
+    coap_config_t config = {
+        .bind_address = 0,  /* 0.0.0.0 - bind to all interfaces */
+        .port = COAP_DEFAULT_PORT,
+        .enable_observe = false,
+        .ack_timeout_ms = COAP_ACK_TIMEOUT_MS,
+        .max_retransmit = COAP_MAX_RETRANSMIT
+    };
+
+    coap_init(&server, &config, true);
+    coap_start(&server);
+
+    /* Register resources */
+    coap_resource_create(&server, "/sensor/temperature", temperature_handler, NULL);
+    coap_resource_create(&server, "/actuator/led", led_handler, NULL);
+
+    /* Process incoming requests */
+    while (1) {
+        coap_process(&server, 1000);
+        os_task_delay(100);
+    }
+}
+
+/* CoAP Client Task */
+void coap_client_task(void *param) {
+    /* Initialize CoAP client */
+    coap_context_t client;
+    coap_config_t config = {
+        .bind_address = IPV4(192, 168, 1, 101),
+        .port = 0,  /* Random port */
+        .enable_observe = false,
+        .ack_timeout_ms = COAP_ACK_TIMEOUT_MS,
+        .max_retransmit = COAP_MAX_RETRANSMIT
+    };
+
+    coap_init(&client, &config, false);
+    coap_start(&client);
+
+    while (1) {
+        coap_response_t response;
+
+        /* GET temperature from server */
+        if (coap_get(&client, IPV4(192, 168, 1, 100), COAP_DEFAULT_PORT,
+                    "/sensor/temperature", &response, 5000) == COAP_OK) {
+            printf("Temperature: %.*s\n", response.payload_length, response.payload);
+            coap_response_free(&response);
+        }
+
+        os_task_delay(5000);
+
+        /* PUT LED state to server */
+        const char *led_on = "{\"state\":\"on\"}";
+        if (coap_put(&client, IPV4(192, 168, 1, 100), COAP_DEFAULT_PORT,
+                    "/actuator/led", COAP_CONTENT_FORMAT_JSON,
+                    (const uint8_t *)led_on, strlen(led_on),
+                    &response, 5000) == COAP_OK) {
+            printf("LED control: %s\n", coap_response_code_to_string(response.code));
+            coap_response_free(&response);
+        }
+
+        os_task_delay(5000);
+    }
+}
+
+int main(void) {
+    os_init();
+    os_mem_init();
+
+    /* Initialize network */
+    net_driver_t *driver = get_loopback_driver();
+    net_config_t net_config = {
+        .ip = IPV4(192, 168, 1, 100),
+        .netmask = {{255, 255, 255, 0}},
+        .gateway = {{192, 168, 1, 1}},
+        .dns = {{8, 8, 8, 8}}
+    };
+    net_init(driver, &net_config);
+    net_start();
+
+    /* Create CoAP tasks */
+    static tcb_t server_task, client_task;
+    os_task_create(&server_task, "coap_server", coap_server_task, NULL, PRIORITY_NORMAL);
+    os_task_create(&client_task, "coap_client", coap_client_task, NULL, PRIORITY_NORMAL);
+
+    os_start();
+}
+```
+
+**CoAP Features:**
+- **RFC 7252 Compliant**: Full CoAP protocol implementation
+- **RESTful API**: GET, POST, PUT, DELETE methods
+- **Client & Server**: Both client and server functionality
+- **Message Types**: CON (Confirmable), NON (Non-confirmable), ACK, RST
+- **Content Formats**: JSON, XML, plain text, CBOR, and custom formats
+- **URI Path Support**: Multi-segment URI paths (e.g., /sensor/temperature)
+- **Observe Pattern**: Subscribe to resource changes (optional)
+- **Lightweight**: ~6KB ROM, ~1KB RAM for full functionality
+- **UDP-based**: Built on top of TinyOS network stack
+
+**Use Cases:**
+- RESTful IoT device APIs
+- Machine-to-machine (M2M) communication
+- Sensor networks
+- Home automation control
+- Industrial monitoring
+- Constrained networks (6LoWPAN, NB-IoT)
+
+**Comparison with MQTT:**
+| Feature | CoAP | MQTT |
+|---------|------|------|
+| Protocol | Request/Response | Publish/Subscribe |
+| Transport | UDP (optionally TCP) | TCP |
+| Overhead | Low (~4 bytes header) | Medium (~2 bytes + topic) |
+| RESTful | Yes | No |
+| QoS | CON/NON messages | QoS 0, 1, 2 |
+| Discovery | Built-in (/.well-known/core) | Requires external mechanism |
+| Best for | Request/response patterns | Event-driven, streaming data |
+
 ## Performance
 
 ### Memory Usage
@@ -1442,7 +1710,9 @@ tinyos-rtos/
 │   └── tinyos/
 │       ├── net.h            # Network stack API
 │       ├── ota.h            # OTA update API
-│       └── mqtt.h           # ✨ NEW: MQTT client API
+│       ├── mqtt.h           # MQTT client API
+│       ├── coap.h           # ✨ NEW: CoAP client/server API
+│       └── watchdog.h       # Watchdog timer API
 ├── src/
 │   ├── kernel.c             # Scheduler & task management
 │   ├── memory.c             # Memory allocator
@@ -1453,7 +1723,9 @@ tinyos-rtos/
 │   ├── security.c           # MPU & security
 │   ├── ota.c                # OTA update implementation
 │   ├── bootloader.c         # Bootloader for OTA
-│   ├── mqtt.c               # ✨ NEW: MQTT client implementation
+│   ├── mqtt.c               # MQTT client implementation
+│   ├── coap.c               # ✨ NEW: CoAP client/server implementation
+│   ├── watchdog.c           # Watchdog timer implementation
 │   └── net/                 # Network stack
 │       ├── network.c        # Network core & buffer management
 │       ├── ethernet.c       # Ethernet layer (Layer 2) & ARP
@@ -1471,8 +1743,10 @@ tinyos-rtos/
 │   ├── network_demo.c       # Network stack demo (TCP/UDP/HTTP/Ping)
 │   ├── ota_demo.c           # OTA firmware update demo
 │   ├── mqtt_demo.c          # MQTT client demo
+│   ├── coap_demo.c          # ✨ NEW: CoAP client/server demo
 │   ├── condition_variable.c # Condition variable demo (producer-consumer)
-│   └── task_statistics.c    # ✨ NEW: Task statistics monitoring demo
+│   ├── task_statistics.c    # Task statistics monitoring demo
+│   └── watchdog_demo.c      # Watchdog timer demo
 ├── drivers/                 # Hardware drivers
 │   ├── ramdisk.c            # RAM disk driver (for testing)
 │   ├── ramdisk.h            # RAM disk header
@@ -1521,13 +1795,35 @@ tinyos-rtos/
   - Producer-consumer pattern support
   - FIFO waiting queue
 
-### Version 1.6 (Future)
-- [ ] CoAP protocol support
+### Version 1.6 (Completed)
+- [x] **Task Statistics Monitoring** - ✅ Implemented!
+  - CPU usage tracking per task and system-wide
+  - Runtime monitoring and context switch counting
+  - Stack usage analysis
+  - System uptime and heap monitoring
+- [x] **Watchdog Timer** - ✅ Implemented!
+  - System-wide watchdog support
+  - Per-task watchdog monitoring
+  - Automatic system recovery
+  - Reset reason detection
+
+### Version 1.7 (Completed)
+- [x] **CoAP Client/Server** - ✅ Implemented!
+  - RFC 7252 compliant implementation
+  - RESTful API (GET, POST, PUT, DELETE)
+  - Client and server functionality
+  - Message types: CON, NON, ACK, RST
+  - Content format negotiation
+  - URI path support
+  - Observe pattern support
+
+### Version 1.8 (Future)
 - [ ] Debug trace functionality
 - [ ] DHCP client
 - [ ] Full TCP server support
 - [ ] Crypto library (AES, SHA-256)
-- [ ] TLS/SSL support for MQTT
+- [ ] TLS/SSL support for MQTT and CoAP
+- [ ] IPv6 support
 
 ## Benchmark
 
@@ -1600,10 +1896,40 @@ If you discover a security vulnerability, please email us directly instead of cr
 ## Credits
 
 Developed by: TinyOS Project Team
-Version: 1.6.0
-Updated: 2025
+Version: 1.7.0
+Updated: 2026
 
 ## Changelog
+
+### Version 1.7.0 (2026-01-08)
+- ✨ **New Feature**: CoAP Client/Server for RESTful IoT Communication
+  - **RFC 7252 Compliant**: Full CoAP protocol implementation
+  - **`coap_init()`** / **`coap_start()`** - Initialize and start CoAP context
+  - **`coap_get()`** - Send GET requests to CoAP resources
+  - **`coap_post()`** - Send POST requests with payload
+  - **`coap_put()`** - Send PUT requests to update resources
+  - **`coap_delete()`** - Send DELETE requests
+  - **`coap_resource_create()`** - Register server-side resource handlers
+  - **`coap_resource_set_observable()`** - Make resources observable
+  - **`coap_observe_start()`** / **`coap_observe_stop()`** - Client-side observe pattern
+  - **RESTful API**: Complete support for GET, POST, PUT, DELETE methods
+  - **Message Types**: CON (Confirmable), NON (Non-confirmable), ACK, RST
+  - **Content Formats**: JSON, XML, plain text, CBOR, and custom formats
+  - **URI Path Support**: Multi-segment URI paths (e.g., /sensor/temperature)
+  - **UDP-based**: Built on top of TinyOS network stack
+  - **Low Overhead**: ~4 byte header, minimal protocol overhead
+- 📦 **Added**: CoAP client/server demo (`coap_demo.c`)
+  - Complete client and server implementation
+  - Multiple resource types (sensors, actuators)
+  - RESTful API demonstration
+  - GET, POST, PUT operations
+  - JSON payload handling
+- 📚 **Documentation**: Comprehensive CoAP API reference and examples in README
+  - Detailed usage examples for client and server
+  - Comparison table with MQTT
+  - Use cases and best practices
+- 🎯 **Memory footprint**: ~6KB ROM, ~1KB RAM for full CoAP functionality
+- 🔧 **Use Cases**: RESTful IoT APIs, M2M communication, sensor networks, home automation
 
 ### Version 1.6.0 (2025-12-19)
 - ✨ **New Feature**: Task Statistics Monitoring

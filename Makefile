@@ -21,11 +21,12 @@ BUILD_DIR := build
 
 # Source files
 KERNEL_SRCS := $(wildcard $(SRC_DIR)/*.c)
+NET_SRCS := $(wildcard $(SRC_DIR)/net/*.c)
 DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
 
-ALL_SRCS := $(KERNEL_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC)
+ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC)
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
 
 # Compiler flags
@@ -62,6 +63,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	@echo "Compiling $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile network sources
+$(BUILD_DIR)/%.o: $(SRC_DIR)/net/%.c | $(BUILD_DIR)
+	@echo "Compiling network: $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Compile drivers
 $(BUILD_DIR)/%.o: $(DRIVERS_DIR)/%.c | $(BUILD_DIR)
 	@echo "Compiling driver: $<"
@@ -91,7 +97,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 # Build examples
-.PHONY: example-blink example-iot example-priority example-events example-timers example-power example-fs example-network example-ota example-mqtt example-condvar example-stats example-watchdog
+.PHONY: example-blink example-iot example-priority example-events example-timers example-power example-fs example-network example-ota example-mqtt example-coap example-condvar example-stats example-watchdog
 
 example-blink:
 	$(MAKE) EXAMPLE=blink_led
@@ -123,6 +129,9 @@ example-ota:
 example-mqtt:
 	$(MAKE) EXAMPLE=mqtt_demo
 
+example-coap:
+	$(MAKE) EXAMPLE=coap_demo
+
 example-condvar:
 	$(MAKE) EXAMPLE=condition_variable
 
@@ -148,6 +157,7 @@ help:
 	@echo "  example-network  - Build network stack example (TCP/UDP/HTTP/Ping)"
 	@echo "  example-ota      - Build OTA firmware update example"
 	@echo "  example-mqtt     - Build MQTT client example"
+	@echo "  example-coap     - Build CoAP client/server example"
 	@echo "  example-condvar  - Build condition variable example (producer-consumer)"
 	@echo "  example-stats    - Build task statistics monitoring example"
 	@echo "  example-watchdog - Build watchdog timer example"
