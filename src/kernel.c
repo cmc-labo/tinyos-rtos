@@ -170,7 +170,7 @@ os_error_t os_task_create(
 
     /* Initialize task control block */
     memset(task, 0, sizeof(tcb_t));
-    strncpy(task->name, name, sizeof(task->name) - 1);
+    strncpy(task->name, name ? name : "", sizeof(task->name) - 1);
     task->entry_point = entry;
     task->param = param;
     task->priority = priority;
@@ -210,12 +210,16 @@ os_error_t os_task_delete(tcb_t *task) {
 
     uint32_t state = os_enter_critical();
 
+    /* Remove from ready queue before changing state */
+    scheduler_remove_task(task);
     task->state = TASK_STATE_TERMINATED;
     kernel.task_count--;
 
     /* If deleting current task, trigger scheduler */
     if (task == kernel.current_task) {
+        os_exit_critical(state);
         os_task_yield();
+        return OS_OK;
     }
 
     os_exit_critical(state);
@@ -231,8 +235,18 @@ os_error_t os_task_suspend(tcb_t *task) {
     }
 
     uint32_t state = os_enter_critical();
+
+    /* Remove from ready queue before suspending */
+    scheduler_remove_task(task);
     task->state = TASK_STATE_SUSPENDED;
+    bool is_current = (task == kernel.current_task);
+
     os_exit_critical(state);
+
+    /* If suspending current task, yield to next task */
+    if (is_current) {
+        os_task_yield();
+    }
 
     return OS_OK;
 }
@@ -437,7 +451,6 @@ os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority) {
 
     uint32_t state = os_enter_critical();
 
-    task_priority_t old_priority = task->priority;
     task->priority = new_priority;
     /* Note: base_priority remains unchanged */
 
