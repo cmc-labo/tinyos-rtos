@@ -282,7 +282,8 @@ void os_task_yield(void) {
  */
 void os_task_delay(uint32_t ticks) {
     uint32_t target = kernel.tick_count + ticks;
-    while (kernel.tick_count < target) {
+    /* Use subtraction to handle tick_count wraparound correctly */
+    while ((int32_t)(target - kernel.tick_count) > 0) {
         os_task_yield();
     }
 }
@@ -335,7 +336,7 @@ void os_get_stats(os_stats_t *stats) {
     if (stats == NULL) return;
 
     uint32_t running = 0, blocked = 0;
-    for (int i = 0; i < kernel.task_count; i++) {
+    for (int i = 0; i < MAX_TASKS; i++) {
         if (kernel.task_pool[i].state == TASK_STATE_RUNNING) running++;
         if (kernel.task_pool[i].state == TASK_STATE_BLOCKED) blocked++;
     }
@@ -357,32 +358,30 @@ uint8_t os_task_get_cpu_usage(tcb_t *task) {
         return 0;
     }
 
-    return (uint8_t)((task->run_time * 100) / kernel.tick_count);
+    uint32_t usage = (task->run_time * 100) / kernel.tick_count;
+    return (uint8_t)(usage > 100u ? 100u : usage);
 }
 
 /**
  * Remove task from ready queue
  */
 static void scheduler_remove_task(tcb_t *task) {
-    /* Search through all priority queues */
-    for (int i = 0; i < 256; i++) {
-        tcb_t *prev = NULL;
-        tcb_t *current = kernel.ready_queue[i];
+    /* A task can only reside in the queue for its own priority */
+    tcb_t *prev = NULL;
+    tcb_t *current = kernel.ready_queue[task->priority];
 
-        while (current != NULL) {
-            if (current == task) {
-                /* Found the task, remove it */
-                if (prev == NULL) {
-                    kernel.ready_queue[i] = current->next;
-                } else {
-                    prev->next = current->next;
-                }
-                current->next = NULL;
-                return;
+    while (current != NULL) {
+        if (current == task) {
+            if (prev == NULL) {
+                kernel.ready_queue[task->priority] = current->next;
+            } else {
+                prev->next = current->next;
             }
-            prev = current;
-            current = current->next;
+            current->next = NULL;
+            return;
         }
+        prev = current;
+        current = current->next;
     }
 }
 
