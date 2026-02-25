@@ -41,8 +41,6 @@ void os_init(void) {
         NULL,
         PRIORITY_IDLE
     );
-
-    kernel.task_count = 1;
 }
 
 /**
@@ -100,7 +98,9 @@ void os_scheduler(void) {
     /* Update current task time slice */
     if (kernel.current_task != NULL) {
         kernel.current_task->run_time++;
-        kernel.current_task->time_slice--;
+        if (kernel.current_task->time_slice > 0) {
+            kernel.current_task->time_slice--;
+        }
 
         /* Preempt if time slice expired */
         if (kernel.current_task->time_slice == 0) {
@@ -407,12 +407,16 @@ os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority) {
     uint32_t state = os_enter_critical();
 
     task_priority_t old_priority = task->priority;
+
+    /* Remove from ready queue before changing priority to ensure correct queue is searched */
+    if (task->state == TASK_STATE_READY) {
+        scheduler_remove_task(task);
+    }
+
     task->priority = new_priority;
     task->base_priority = new_priority;  /* Update base priority too */
 
-    /* If task is in ready queue, re-insert at new priority */
     if (task->state == TASK_STATE_READY) {
-        scheduler_remove_task(task);
         scheduler_add_ready_task(task);
     }
 
@@ -450,12 +454,15 @@ os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority) {
 
     uint32_t state = os_enter_critical();
 
+    /* Remove from ready queue before changing priority to ensure correct queue is searched */
+    if (task->state == TASK_STATE_READY) {
+        scheduler_remove_task(task);
+    }
+
     task->priority = new_priority;
     /* Note: base_priority remains unchanged */
 
-    /* If task is in ready queue, re-insert at new priority */
     if (task->state == TASK_STATE_READY) {
-        scheduler_remove_task(task);
         scheduler_add_ready_task(task);
     }
 
@@ -483,11 +490,15 @@ os_error_t os_task_reset_priority(tcb_t *task) {
 
     /* Reset to base priority */
     task_priority_t old_priority = task->priority;
-    task->priority = task->base_priority;
 
-    /* If task is in ready queue, re-insert at base priority */
+    /* Remove from ready queue before changing priority to ensure correct queue is searched */
     if (task->state == TASK_STATE_READY) {
         scheduler_remove_task(task);
+    }
+
+    task->priority = task->base_priority;
+
+    if (task->state == TASK_STATE_READY) {
         scheduler_add_ready_task(task);
     }
 
