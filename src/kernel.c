@@ -272,6 +272,9 @@ os_error_t os_task_resume(tcb_t *task) {
  * Yield CPU to other tasks
  */
 void os_task_yield(void) {
+    if (kernel.current_task == NULL) {
+        return;
+    }
     /* Trigger scheduler */
     kernel.current_task->time_slice = 0;
     os_scheduler();
@@ -306,7 +309,7 @@ uint32_t os_get_tick_count(void) {
  * Get uptime in milliseconds
  */
 uint32_t os_get_uptime_ms(void) {
-    return (kernel.tick_count * 1000) / TICK_RATE_HZ;
+    return (uint32_t)(((uint64_t)kernel.tick_count * 1000) / TICK_RATE_HZ);
 }
 
 /**
@@ -358,7 +361,7 @@ uint8_t os_task_get_cpu_usage(tcb_t *task) {
         return 0;
     }
 
-    uint32_t usage = (task->run_time * 100) / kernel.tick_count;
+    uint32_t usage = (uint32_t)(((uint64_t)task->run_time * 100) / kernel.tick_count);
     return (uint8_t)(usage > 100u ? 100u : usage);
 }
 
