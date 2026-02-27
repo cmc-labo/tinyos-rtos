@@ -208,6 +208,11 @@ os_error_t os_task_delete(tcb_t *task) {
         return OS_ERROR_INVALID_PARAM;
     }
 
+    /* Idle task must never be deleted */
+    if (task == &kernel.task_pool[0]) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
     uint32_t state = os_enter_critical();
 
     /* Remove from ready queue before changing state */
@@ -431,7 +436,7 @@ os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority) {
     }
 
     /* If a higher priority task is now ready, trigger scheduler */
-    if (new_priority < kernel.current_task->priority) {
+    if (kernel.current_task != NULL && new_priority < kernel.current_task->priority) {
         os_exit_critical(state);
         os_task_yield();
         return OS_OK;
@@ -470,7 +475,7 @@ os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority) {
     }
 
     /* If a higher priority task is now ready, trigger scheduler */
-    if (new_priority < kernel.current_task->priority) {
+    if (kernel.current_task != NULL && new_priority < kernel.current_task->priority) {
         os_exit_critical(state);
         os_task_yield();
         return OS_OK;
@@ -565,7 +570,9 @@ os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats) {
     /* Calculate stack usage */
     stats->stack_size = STACK_SIZE * sizeof(uint32_t);
     stats->stack_used = calculate_stack_usage(task);
-    stats->stack_free = stats->stack_size - stats->stack_used;
+    stats->stack_free = (stats->stack_used <= stats->stack_size)
+                      ? (stats->stack_size - stats->stack_used)
+                      : 0;
 
     /* Update high water mark */
     if (stats->stack_used > task->stack_high_water_mark) {
