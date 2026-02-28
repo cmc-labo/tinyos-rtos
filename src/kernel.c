@@ -121,6 +121,9 @@ void os_scheduler(void) {
 
                 /* Perform context switch */
                 context_switch(&old_task->stack_ptr, &next_task->stack_ptr);
+            } else {
+                /* Same task continues; reset its time slice to avoid repeated rescheduling */
+                next_task->time_slice = TIME_SLICE_MS;
             }
         }
     }
@@ -415,6 +418,12 @@ os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority) {
     uint32_t state = os_enter_critical();
 
     task_priority_t old_priority = task->priority;
+
+    /* No-op if priority is unchanged */
+    if (new_priority == old_priority) {
+        os_exit_critical(state);
+        return OS_OK;
+    }
 
     /* Remove from ready queue before changing priority to ensure correct queue is searched */
     if (task->state == TASK_STATE_READY) {
