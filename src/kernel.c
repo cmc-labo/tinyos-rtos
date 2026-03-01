@@ -18,6 +18,10 @@ static struct {
     bool scheduler_running;
 } kernel;
 
+/* Forward declarations */
+static void scheduler_remove_task(tcb_t *task);
+static void scheduler_add_ready_task(tcb_t *task);
+
 /* Idle task */
 static void idle_task(void *param) {
     (void)param;
@@ -770,12 +774,19 @@ const char *os_priority_name(task_priority_t priority) {
     }
 }
 
+/* Helper macros for compile-time version string generation */
+#define TINYOS_STRINGIFY(x)  #x
+#define TINYOS_TOSTRING(x)   TINYOS_STRINGIFY(x)
+#define TINYOS_VERSION_STRING \
+    TINYOS_TOSTRING(TINYOS_VERSION_MAJOR) "." \
+    TINYOS_TOSTRING(TINYOS_VERSION_MINOR) "." \
+    TINYOS_TOSTRING(TINYOS_VERSION_PATCH)
+
 /**
  * Get version string
  */
 const char *os_get_version_string(void) {
-    /* Return compile-time version string */
-    return "1.2.0";
+    return TINYOS_VERSION_STRING;
 }
 
 /**

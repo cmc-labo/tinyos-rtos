@@ -69,7 +69,6 @@ void *os_malloc(size_t size) {
     size_t total_size = blocks_needed * BLOCK_SIZE;
 
     /* Search free list for suitable block */
-    memory_block_t **indirect = &mem.free_list;
     memory_block_t *block = mem.free_list;
     memory_block_t *prev = NULL;
 

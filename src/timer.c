@@ -236,8 +236,8 @@ void os_timer_process(void) {
     timer_t *prev = NULL;
 
     while (timer != NULL) {
-        /* Check if timer has expired */
-        if (current_time >= timer->expire_time) {
+        /* Check if timer has expired (signed subtraction handles tick wraparound) */
+        if ((int32_t)(current_time - timer->expire_time) >= 0) {
             timer_t *expired_timer = timer;
             timer = timer->next;
 
