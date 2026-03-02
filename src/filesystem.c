@@ -605,7 +605,7 @@ int32_t fs_read(fs_file_t fd, void *buffer, size_t size) {
         return -1;
     }
 
-    if (!(fs_state.files[fd].flags & (FS_O_RDONLY | FS_O_RDWR))) {
+    if (!(fs_state.files[fd].flags & FS_O_RDONLY)) {
         return -1;  /* File not opened for reading */
     }
 
@@ -655,7 +655,7 @@ int32_t fs_write(fs_file_t fd, const void *buffer, size_t size) {
         return -1;
     }
 
-    if (!(fs_state.files[fd].flags & (FS_O_WRONLY | FS_O_RDWR))) {
+    if (!(fs_state.files[fd].flags & FS_O_WRONLY)) {
         return -1;  /* File not opened for writing */
     }
 
@@ -1178,7 +1178,8 @@ os_error_t fs_readdir(fs_dir_t dir, fs_dirent_t *entry) {
             if (entries[i].inode != 0) {
                 if (current_entry == dir->position) {
                     /* Found the next entry */
-                    strncpy(entry->name, entries[i].name, FS_MAX_FILENAME_LENGTH);
+                    strncpy(entry->name, entries[i].name, FS_MAX_FILENAME_LENGTH - 1);
+                    entry->name[FS_MAX_FILENAME_LENGTH - 1] = '\0';
                     entry->type = entries[i].type;
 
                     /* Get size and mtime from inode */
