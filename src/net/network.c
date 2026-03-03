@@ -207,7 +207,6 @@ bool net_parse_ipv4(const char *str, ipv4_addr_t *ip) {
         return false;
     }
 
-    int a, b, c, d;
     int count = 0;
     const char *p = str;
 

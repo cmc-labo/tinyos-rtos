@@ -291,6 +291,9 @@ os_error_t net_connect(net_socket_t sock, const sockaddr_in_t *addr, uint32_t ti
     /* Assign ephemeral port if not bound */
     if (sockets[sock].local_addr.port == 0) {
         sockets[sock].local_addr.port = next_ephemeral_port++;
+        if (next_ephemeral_port == 0) {
+            next_ephemeral_port = 49152;  /* Wrap back to start of ephemeral range */
+        }
     }
 
     sockets[sock].remote_addr = *addr;

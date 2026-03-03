@@ -132,6 +132,8 @@ static uint32_t crc32_calculate(const uint8_t *data, size_t length) {
  * Boot Info Management
  * ============================================================================ */
 
+static ota_error_t save_boot_info(void);  /* Forward declaration */
+
 static ota_error_t load_boot_info(void) {
     flash_error_t flash_err;
 
@@ -545,6 +547,8 @@ ota_error_t ota_compute_crc32(ota_partition_type_t type, uint32_t *crc32) {
     if (buffer == NULL) {
         return OTA_ERROR_FLASH_ERROR;
     }
+
+    crc32_init_table();  /* Ensure table is initialized before use */
 
     uint32_t computed_crc = 0xFFFFFFFF;
     uint32_t remaining = partition_info.size;
