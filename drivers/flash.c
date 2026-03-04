@@ -41,7 +41,7 @@ static const char *error_strings[] = {
  * ============================================================================ */
 
 static bool is_address_valid(uint32_t address, size_t size) {
-    return (address + size) <= FLASH_TOTAL_SIZE;
+    return size <= FLASH_TOTAL_SIZE && address <= FLASH_TOTAL_SIZE - size;
 }
 
 static bool is_sector_aligned(uint32_t address) {
@@ -323,7 +323,7 @@ flash_error_t flash_wait_ready(uint32_t timeout_ms) {
 }
 
 const char *flash_error_to_string(flash_error_t error) {
-    if (error >= 0 && error < sizeof(error_strings) / sizeof(error_strings[0])) {
+    if ((size_t)error < sizeof(error_strings) / sizeof(error_strings[0])) {
         return error_strings[error];
     }
     return "Unknown error";

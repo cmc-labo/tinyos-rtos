@@ -34,8 +34,7 @@ static bool mqtt_topic_matches(const char *subscription, const char *topic);
  * @brief Get system time in milliseconds
  */
 static uint32_t mqtt_get_time_ms(void) {
-    extern uint32_t system_tick;
-    return system_tick;
+    return os_get_uptime_ms();
 }
 
 /**

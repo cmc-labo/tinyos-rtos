@@ -254,14 +254,13 @@ void net_ip_input(const uint8_t *data, uint16_t length, const mac_addr_t *src_ma
         return;  /* Invalid header length */
     }
 
-    /* Verify checksum */
-    uint16_t received_checksum = ip_hdr->checksum;
-    ip_header_t *mutable_hdr = (ip_header_t *)data;
-    mutable_hdr->checksum = 0;
-    uint16_t calculated_checksum = net_checksum(data, ihl);
-    mutable_hdr->checksum = received_checksum;
+    /* Verify checksum using a local copy to avoid modifying the const input buffer */
+    uint8_t hdr_copy[60];  /* IP header is at most 60 bytes (IHL field max = 15, x4 = 60) */
+    memcpy(hdr_copy, data, ihl);
+    ((ip_header_t *)hdr_copy)->checksum = 0;
+    uint16_t calculated_checksum = net_checksum(hdr_copy, ihl);
 
-    if (received_checksum != calculated_checksum) {
+    if (ip_hdr->checksum != calculated_checksum) {
         return;  /* Checksum mismatch */
     }
 

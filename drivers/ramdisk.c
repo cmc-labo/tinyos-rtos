@@ -24,7 +24,7 @@ static int ramdisk_read(uint32_t block, void *buffer, uint32_t count) {
         return -1;
     }
 
-    if (block + count > RAMDISK_BLOCKS) {
+    if (count > RAMDISK_BLOCKS || block > RAMDISK_BLOCKS - count) {
         return -1;  /* Out of bounds */
     }
 
@@ -45,7 +45,7 @@ static int ramdisk_write(uint32_t block, const void *buffer, uint32_t count) {
         return -1;
     }
 
-    if (block + count > RAMDISK_BLOCKS) {
+    if (count > RAMDISK_BLOCKS || block > RAMDISK_BLOCKS - count) {
         return -1;  /* Out of bounds */
     }
 
@@ -66,7 +66,7 @@ static int ramdisk_erase(uint32_t block, uint32_t count) {
         return -1;
     }
 
-    if (block + count > RAMDISK_BLOCKS) {
+    if (count > RAMDISK_BLOCKS || block > RAMDISK_BLOCKS - count) {
         return -1;  /* Out of bounds */
     }
 

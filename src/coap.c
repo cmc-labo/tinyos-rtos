@@ -393,6 +393,8 @@ static coap_error_t coap_send_request_internal(
         return COAP_ERROR_INVALID_PARAM;
     }
 
+    (void)timeout_ms;  /* net_recvfrom uses its own internal timeout */
+
     /* Create request PDU */
     coap_pdu_t request;
     uint16_t msg_id = coap_generate_message_id(context);
@@ -652,7 +654,9 @@ coap_error_t coap_process(coap_context_t *context, uint32_t timeout_ms) {
                 }
             }
         }
-        uri_path[path_len - 1] = '\0';  /* Remove trailing slash */
+        if (path_len > 1) {
+            uri_path[path_len - 1] = '\0';  /* Remove trailing slash */
+        }
 
         /* Find resource */
         coap_resource_t *resource = coap_find_resource(context, uri_path);
