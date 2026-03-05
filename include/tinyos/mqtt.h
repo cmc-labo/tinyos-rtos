@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "tinyos.h"
+#include "tinyos/net.h"
 
 #ifdef __cplusplus
 extern "C" {

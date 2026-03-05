@@ -94,8 +94,22 @@ typedef enum {
     OS_ERROR_NO_MEMORY = -2,
     OS_ERROR_INVALID_PARAM = -3,
     OS_ERROR_TIMEOUT = -4,
-    OS_ERROR_PERMISSION_DENIED = -5
+    OS_ERROR_PERMISSION_DENIED = -5,
+    OS_ERROR_NOT_IMPLEMENTED = -6,
+    OS_ERROR_NO_RESOURCE = -7,
+    OS_ERROR_NOT_INITIALIZED = -8
 } os_error_t;
+
+/* Short-form aliases used throughout the implementation */
+#define OS_ERR_GENERIC          OS_ERROR
+#define OS_ERR_INVALID_PARAM    OS_ERROR_INVALID_PARAM
+#define OS_ERR_TIMEOUT          OS_ERROR_TIMEOUT
+#define OS_ERR_NOT_IMPLEMENTED  OS_ERROR_NOT_IMPLEMENTED
+#define OS_ERR_NO_RESOURCE      OS_ERROR_NO_RESOURCE
+#define OS_ERR_NOT_INITIALIZED  OS_ERROR_NOT_INITIALIZED
+
+/* Special timeout value: wait indefinitely */
+#define OS_WAIT_FOREVER         UINT32_MAX
 
 /* Mutex for synchronization */
 typedef struct {
