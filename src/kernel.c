@@ -304,6 +304,15 @@ void os_task_delay(uint32_t ticks) {
 }
 
 /**
+ * Delay task execution in milliseconds
+ * Converts ms to ticks using TICK_RATE_HZ to stay portable
+ * regardless of the configured tick rate.
+ */
+void os_task_delay_ms(uint32_t ms) {
+    os_task_delay((ms * TICK_RATE_HZ + 999) / 1000);
+}
+
+/**
  * Get current task
  */
 tcb_t *os_task_get_current(void) {

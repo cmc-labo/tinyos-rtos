@@ -296,6 +296,25 @@ void os_timer_process(void) {
 }
 
 /**
+ * Get remaining time until a timer fires (in milliseconds).
+ * Returns 0 if the timer is not active or has already expired.
+ */
+uint32_t os_timer_get_remaining_ms(timer_t *timer) {
+    if (timer == NULL || !timer->active) {
+        return 0;
+    }
+
+    uint32_t state = os_enter_critical();
+    uint32_t current_time = os_get_tick_count();
+    uint32_t expire_time = timer->expire_time;
+    os_exit_critical(state);
+
+    /* Signed subtraction handles tick counter wraparound */
+    int32_t remaining = (int32_t)(expire_time - current_time);
+    return (remaining > 0) ? (uint32_t)remaining : 0;
+}
+
+/**
  * Get active timer count (for debugging)
  */
 uint32_t os_timer_get_count(void) {

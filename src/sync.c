@@ -142,6 +142,21 @@ os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout) {
 }
 
 /**
+ * Get current semaphore count (non-blocking query)
+ */
+int32_t os_semaphore_get_count(semaphore_t *sem) {
+    if (sem == NULL) {
+        return 0;
+    }
+
+    uint32_t state = os_enter_critical();
+    int32_t count = sem->count;
+    os_exit_critical(state);
+
+    return count;
+}
+
+/**
  * Post to semaphore (V operation)
  */
 os_error_t os_semaphore_post(semaphore_t *sem) {
@@ -229,6 +244,61 @@ os_error_t os_queue_send(
         /* Queue full, yield and retry */
         os_task_delay(1);
     }
+}
+
+/**
+ * Peek at the front of the queue without consuming the item.
+ * Blocks until an item is available or the timeout expires.
+ */
+os_error_t os_queue_peek(msg_queue_t *queue, void *item, uint32_t timeout) {
+    if (queue == NULL || item == NULL) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    uint32_t start_tick = os_get_tick_count();
+
+    while (true) {
+        os_error_t err = os_mutex_lock(&queue->lock, 10);
+        if (err != OS_OK) {
+            if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
+                return OS_ERROR_TIMEOUT;
+            }
+            continue;
+        }
+
+        if (queue->count > 0) {
+            /* Copy the front item WITHOUT advancing head or decrementing count */
+            const uint8_t *src = (const uint8_t *)queue->buffer +
+                                 (queue->head * queue->item_size);
+            memcpy(item, src, queue->item_size);
+            os_mutex_unlock(&queue->lock);
+            return OS_OK;
+        }
+
+        os_mutex_unlock(&queue->lock);
+
+        /* Check timeout */
+        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
+            return OS_ERROR_TIMEOUT;
+        }
+
+        os_task_delay(1);
+    }
+}
+
+/**
+ * Get current number of items in the queue (non-blocking query)
+ */
+size_t os_queue_get_count(msg_queue_t *queue) {
+    if (queue == NULL) {
+        return 0;
+    }
+
+    uint32_t state = os_enter_critical();
+    size_t count = queue->count;
+    os_exit_critical(state);
+
+    return count;
 }
 
 /**

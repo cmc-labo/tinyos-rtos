@@ -186,6 +186,9 @@ void os_task_yield(void);
 /* Delay task execution */
 void os_task_delay(uint32_t ticks);
 
+/* Delay task execution in milliseconds (portable across different TICK_RATE_HZ values) */
+void os_task_delay_ms(uint32_t ms);
+
 /* Get current task */
 tcb_t *os_task_get_current(void);
 
@@ -222,6 +225,9 @@ os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout);
 
 /* Post to semaphore */
 os_error_t os_semaphore_post(semaphore_t *sem);
+
+/* Get current semaphore count without consuming (non-blocking) */
+int32_t os_semaphore_get_count(semaphore_t *sem);
 
 /*
  * Event Group API
@@ -273,6 +279,16 @@ os_error_t os_queue_receive(
     void *item,
     uint32_t timeout
 );
+
+/* Peek at front item without consuming it */
+os_error_t os_queue_peek(
+    msg_queue_t *queue,
+    void *item,
+    uint32_t timeout
+);
+
+/* Get number of items currently in the queue (non-blocking) */
+size_t os_queue_get_count(msg_queue_t *queue);
 
 /*
  * Condition Variable API
@@ -384,6 +400,9 @@ os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms);
 
 /* Check if timer is active */
 bool os_timer_is_active(timer_t *timer);
+
+/* Get remaining time until timer fires in milliseconds (returns 0 if not active) */
+uint32_t os_timer_get_remaining_ms(timer_t *timer);
 
 /*
  * Security API
