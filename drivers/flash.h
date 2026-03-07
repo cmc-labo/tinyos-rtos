@@ -233,23 +233,27 @@ const char *flash_error_to_string(flash_error_t error);
 /**
  * @brief Platform-specific flash initialization
  * @return FLASH_OK on success
+ * @note Weak symbol - override in platform-specific code to use real hardware.
  */
-flash_error_t __attribute__((weak)) platform_flash_init(void);
+flash_error_t platform_flash_init(void);
 
 /**
  * @brief Platform-specific flash read
+ * @note Weak symbol - override in platform-specific code to use real hardware.
  */
-flash_error_t __attribute__((weak)) platform_flash_read(uint32_t address, void *buffer, size_t size);
+flash_error_t platform_flash_read(uint32_t address, void *buffer, size_t size);
 
 /**
  * @brief Platform-specific flash write
+ * @note Weak symbol - override in platform-specific code to use real hardware.
  */
-flash_error_t __attribute__((weak)) platform_flash_write(uint32_t address, const void *buffer, size_t size);
+flash_error_t platform_flash_write(uint32_t address, const void *buffer, size_t size);
 
 /**
  * @brief Platform-specific flash erase
+ * @note Weak symbol - override in platform-specific code to use real hardware.
  */
-flash_error_t __attribute__((weak)) platform_flash_erase_sector(uint32_t address);
+flash_error_t platform_flash_erase_sector(uint32_t address);
 
 #ifdef __cplusplus
 }

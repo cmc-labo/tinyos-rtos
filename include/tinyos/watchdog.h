@@ -18,13 +18,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include "tinyos.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Forward declaration */
-typedef struct tcb tcb_t;
 
 /* ========================================================================
  * Convenience Macros
