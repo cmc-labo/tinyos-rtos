@@ -138,6 +138,10 @@ void async_operation_with_timeout(void) {
     /* Reset state */
     operation_completed = false;
 
+    /* Delete previous timer instance before recreating (prevents list corruption
+     * if called while a previous timeout_timer is still active) */
+    os_timer_delete(&timeout_timer);
+
     /* Create and start timeout timer */
     os_timer_create(
         &timeout_timer,

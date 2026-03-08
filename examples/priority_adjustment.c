@@ -145,17 +145,17 @@ void monitor_task(void *param) {
     while (1) {
         printf("\n--- Task Statistics ---\n");
         printf("High priority runs:   %lu (priority: %d)\n",
-               high_task_runs, os_task_get_priority(&task_high));
+               (unsigned long)high_task_runs, os_task_get_priority(&task_high));
         printf("Medium priority runs: %lu (priority: %d)\n",
-               medium_task_runs, os_task_get_priority(&task_medium));
+               (unsigned long)medium_task_runs, os_task_get_priority(&task_medium));
         printf("Low priority runs:    %lu (priority: %d)\n",
-               low_task_runs, os_task_get_priority(&task_low));
+               (unsigned long)low_task_runs, os_task_get_priority(&task_low));
         printf("Shared counter:       %d\n", shared_counter);
 
         os_stats_t stats;
         os_get_stats(&stats);
-        printf("Context switches:     %lu\n", stats.context_switches);
-        printf("Uptime:               %lu ms\n", os_get_uptime_ms());
+        printf("Context switches:     %lu\n", (unsigned long)stats.context_switches);
+        printf("Uptime:               %lu ms\n", (unsigned long)os_get_uptime_ms());
         printf("----------------------\n\n");
 
         os_task_delay(2000);

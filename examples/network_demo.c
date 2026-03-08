@@ -49,7 +49,7 @@ void ping_demo_task(void *param) {
 
         if (err == OS_OK) {
             printf("[Ping] Reply from %d.%d.%d.%d: time=%lu ms\n",
-                   IPV4_ADDR(target), rtt);
+                   IPV4_ADDR(target), (unsigned long)rtt);
         } else {
             printf("[Ping] Request timeout\n");
         }
@@ -96,7 +96,7 @@ void udp_demo_task(void *param) {
         int32_t sent = net_sendto(sock, msg, strlen(msg), &dest_addr);
         if (sent > 0) {
             printf("[UDP] Sent %ld bytes to %d.%d.%d.%d:%d\n",
-                   sent, IPV4_ADDR(dest_addr.addr), dest_addr.port);
+                   (long)sent, IPV4_ADDR(dest_addr.addr), dest_addr.port);
         }
 
         /* Try to receive */
@@ -107,7 +107,7 @@ void udp_demo_task(void *param) {
         if (received > 0) {
             buffer[received] = '\0';
             printf("[UDP] Received %ld bytes from %d.%d.%d.%d:%d: %s\n",
-                   received, IPV4_ADDR(from_addr.addr), from_addr.port, buffer);
+                   (long)received, IPV4_ADDR(from_addr.addr), from_addr.port, buffer);
         }
 
         os_task_delay(5000);  /* Send every 5 seconds */
@@ -152,14 +152,14 @@ void tcp_demo_task(void *param) {
         /* Send data */
         const char *msg = "GET / HTTP/1.1\r\nHost: server\r\n\r\n";
         int32_t sent = net_send(sock, msg, strlen(msg), 2000);
-        printf("[TCP] Sent %ld bytes\n", sent);
+        printf("[TCP] Sent %ld bytes\n", (long)sent);
 
         /* Receive response */
         char buffer[256];
         int32_t received = net_recv(sock, buffer, sizeof(buffer) - 1, 5000);
         if (received > 0) {
             buffer[received] = '\0';
-            printf("[TCP] Received %ld bytes:\n%s\n", received, buffer);
+            printf("[TCP] Received %ld bytes:\n%s\n", (long)received, buffer);
         }
 
         net_close(sock);
@@ -190,7 +190,7 @@ void http_demo_task(void *param) {
             printf("[HTTP] Response status: %d\n", response.status_code);
             if (response.body) {
                 printf("[HTTP] Body (%lu bytes):\n%s\n",
-                       response.body_length, response.body);
+                       (unsigned long)response.body_length, response.body);
                 net_http_free_response(&response);
             }
         } else {
@@ -213,17 +213,17 @@ void net_stats_task(void *param) {
 
         printf("\n===== Network Statistics =====\n");
         printf("Ethernet RX: %lu packets, TX: %lu packets\n",
-               stats.eth_rx_packets, stats.eth_tx_packets);
+               (unsigned long)stats.eth_rx_packets, (unsigned long)stats.eth_tx_packets);
         printf("IP RX: %lu packets, TX: %lu packets\n",
-               stats.ip_rx_packets, stats.ip_tx_packets);
+               (unsigned long)stats.ip_rx_packets, (unsigned long)stats.ip_tx_packets);
         printf("ICMP RX: %lu packets, TX: %lu packets\n",
-               stats.icmp_rx_packets, stats.icmp_tx_packets);
+               (unsigned long)stats.icmp_rx_packets, (unsigned long)stats.icmp_tx_packets);
         printf("UDP RX: %lu packets, TX: %lu packets\n",
-               stats.udp_rx_packets, stats.udp_tx_packets);
+               (unsigned long)stats.udp_rx_packets, (unsigned long)stats.udp_tx_packets);
         printf("TCP RX: %lu packets, TX: %lu packets\n",
-               stats.tcp_rx_packets, stats.tcp_tx_packets);
+               (unsigned long)stats.tcp_rx_packets, (unsigned long)stats.tcp_tx_packets);
         printf("TCP Connections: %lu, Resets: %lu\n",
-               stats.tcp_connections, stats.tcp_resets);
+               (unsigned long)stats.tcp_connections, (unsigned long)stats.tcp_resets);
         printf("==============================\n\n");
 
         os_task_delay(20000);  /* Print every 20 seconds */

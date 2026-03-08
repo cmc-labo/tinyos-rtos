@@ -107,7 +107,7 @@ static void network_task_func(void *param) {
 
         if (result == OS_OK) {
             /* Simulate sending data over network */
-            printf("[Network] Transmitting packet #%lu...\n", packet_count++);
+            printf("[Network] Transmitting packet #%lu...\n", (unsigned long)packet_count++);
             os_task_delay(100);  /* Simulate TX time */
 
             printf("[Network] Transmission complete\n");
@@ -143,20 +143,20 @@ static void monitor_task_func(void *param) {
 
         printf("\n=== Power Statistics ===\n");
         printf("Current Mode: %d\n", stats.current_mode);
-        printf("Active Time: %lu ms\n", stats.total_active_time_ms);
-        printf("Sleep Time: %lu ms\n", stats.total_sleep_time_ms);
-        printf("Power Consumption: %lu mW\n", stats.power_consumption_mw);
+        printf("Active Time: %lu ms\n", (unsigned long)stats.total_active_time_ms);
+        printf("Sleep Time: %lu ms\n", (unsigned long)stats.total_sleep_time_ms);
+        printf("Power Consumption: %lu mW\n", (unsigned long)stats.power_consumption_mw);
 
         if (stats.estimated_battery_life_hours > 0 &&
             stats.estimated_battery_life_hours < 0xFFFFFFFF) {
-            printf("Est. Battery Life: %lu hours\n", stats.estimated_battery_life_hours);
+            printf("Est. Battery Life: %lu hours\n", (unsigned long)stats.estimated_battery_life_hours);
         }
 
         /* Calculate sleep percentage */
         uint32_t total_time = stats.total_active_time_ms + stats.total_sleep_time_ms;
         if (total_time > 0) {
             uint32_t sleep_pct = (stats.total_sleep_time_ms * 100) / total_time;
-            printf("Sleep Percentage: %lu%%\n", sleep_pct);
+            printf("Sleep Percentage: %lu%%\n", (unsigned long)sleep_pct);
         }
 
         printf("========================\n\n");

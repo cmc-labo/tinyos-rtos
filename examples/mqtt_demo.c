@@ -129,6 +129,7 @@ static void mqtt_connection_changed(mqtt_client_t *client,
  * @brief Sensor publishing task
  */
 static void sensor_task(void *param) {
+    (void)param;
     printf("[Sensor] Task started\n");
 
     while (system_running) {
@@ -182,8 +183,8 @@ static bool init_network(void) {
     };
 
     /* Get network driver (platform specific) */
-    extern net_driver_t *get_loopback_driver(void);
-    net_driver_t *driver = get_loopback_driver();
+    extern net_driver_t *loopback_get_driver(void);
+    net_driver_t *driver = loopback_get_driver();
 
     /* Initialize and start network */
     os_error_t err = net_init(driver, &config);

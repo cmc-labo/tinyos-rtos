@@ -126,8 +126,8 @@ void monitor_task(void *param) {
         os_mutex_lock(&shared_data.mutex, 0);
 
         printf("\n=== Statistics ===\n");
-        printf("Produced: %lu items\n", items_produced);
-        printf("Consumed: %lu items\n", items_consumed);
+        printf("Produced: %lu items\n", (unsigned long)items_produced);
+        printf("Consumed: %lu items\n", (unsigned long)items_consumed);
         printf("Buffer:   %d/%d items\n", shared_data.count, BUFFER_SIZE);
         printf("==================\n\n");
 

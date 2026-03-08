@@ -82,8 +82,8 @@ static void ota_progress_callback(const ota_progress_t *progress, void *user_dat
         printf("OTA Progress: %s - %d%% (%lu / %lu bytes)\n",
                ota_state_to_string(progress->state),
                progress->progress_percent,
-               progress->downloaded_bytes,
-               progress->total_bytes);
+               (unsigned long)progress->downloaded_bytes,
+               (unsigned long)progress->total_bytes);
 
         last_percent = progress->progress_percent;
     }
@@ -116,7 +116,7 @@ static void ota_update_task(void *param) {
         uint8_t *test_firmware = create_test_firmware(&firmware_size);
 
         if (test_firmware != NULL) {
-            printf("Test firmware generated: %lu bytes\n", firmware_size);
+            printf("Test firmware generated: %lu bytes\n", (unsigned long)firmware_size);
 
             /* Start update from buffer */
             ota_error_t err = ota_start_update_from_buffer(

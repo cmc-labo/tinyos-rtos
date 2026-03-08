@@ -372,7 +372,8 @@ int main(void) {
     os_mem_init();
 
     /* Initialize network */
-    net_driver_t *driver = get_loopback_driver();
+    extern net_driver_t *loopback_get_driver(void);
+    net_driver_t *driver = loopback_get_driver();
     net_config_t net_config = {
         .mac = {{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}},
         .ip = SERVER_IP,

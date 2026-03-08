@@ -93,13 +93,13 @@ void monitor_task(void *param) {
         /* Get and display system statistics */
         if (os_get_system_stats(&sys_stats) == OS_OK) {
             printf("System Uptime:        %lu seconds (%lu ticks)\n",
-                   sys_stats.uptime_seconds, sys_stats.uptime_ticks);
-            printf("Total Tasks:          %lu\n", sys_stats.total_tasks);
-            printf("Running Tasks:        %lu\n", sys_stats.running_tasks);
-            printf("Context Switches:     %lu\n", sys_stats.total_context_switches);
+                   (unsigned long)sys_stats.uptime_seconds, (unsigned long)sys_stats.uptime_ticks);
+            printf("Total Tasks:          %lu\n", (unsigned long)sys_stats.total_tasks);
+            printf("Running Tasks:        %lu\n", (unsigned long)sys_stats.running_tasks);
+            printf("Context Switches:     %lu\n", (unsigned long)sys_stats.total_context_switches);
             printf("Overall CPU Usage:    %.2f%%\n", sys_stats.cpu_usage);
             printf("Idle Time:            %lu ticks (%.2f%%)\n",
-                   sys_stats.idle_time,
+                   (unsigned long)sys_stats.idle_time,
                    100.0f - sys_stats.cpu_usage);
             printf("Free Heap:            %zu bytes\n", sys_stats.free_heap);
             printf("\n");
@@ -122,10 +122,10 @@ void monitor_task(void *param) {
                    task_stats.priority,
                    state_names[task_stats.state],
                    task_stats.cpu_usage,
-                   task_stats.run_time,
-                   task_stats.context_switches,
-                   task_stats.stack_used,
-                   task_stats.stack_size);
+                   (unsigned long)task_stats.run_time,
+                   (unsigned long)task_stats.context_switches,
+                   (unsigned long)task_stats.stack_used,
+                   (unsigned long)task_stats.stack_size);
         }
 
         /* Worker2 stats */
@@ -135,10 +135,10 @@ void monitor_task(void *param) {
                    task_stats.priority,
                    state_names[task_stats.state],
                    task_stats.cpu_usage,
-                   task_stats.run_time,
-                   task_stats.context_switches,
-                   task_stats.stack_used,
-                   task_stats.stack_size);
+                   (unsigned long)task_stats.run_time,
+                   (unsigned long)task_stats.context_switches,
+                   (unsigned long)task_stats.stack_used,
+                   (unsigned long)task_stats.stack_size);
         }
 
         /* Heavy worker stats */
@@ -148,10 +148,10 @@ void monitor_task(void *param) {
                    task_stats.priority,
                    state_names[task_stats.state],
                    task_stats.cpu_usage,
-                   task_stats.run_time,
-                   task_stats.context_switches,
-                   task_stats.stack_used,
-                   task_stats.stack_size);
+                   (unsigned long)task_stats.run_time,
+                   (unsigned long)task_stats.context_switches,
+                   (unsigned long)task_stats.stack_used,
+                   (unsigned long)task_stats.stack_size);
         }
 
         /* Monitor task stats */
@@ -161,10 +161,10 @@ void monitor_task(void *param) {
                    task_stats.priority,
                    state_names[task_stats.state],
                    task_stats.cpu_usage,
-                   task_stats.run_time,
-                   task_stats.context_switches,
-                   task_stats.stack_used,
-                   task_stats.stack_size);
+                   (unsigned long)task_stats.run_time,
+                   (unsigned long)task_stats.context_switches,
+                   (unsigned long)task_stats.stack_used,
+                   (unsigned long)task_stats.stack_size);
         }
 
         printf("═══════════════════════════════════════════════════════════════\n");

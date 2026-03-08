@@ -75,7 +75,7 @@ void file_writer(void *param) {
         if (fd != FS_INVALID_FD) {
             char log_entry[64];
             snprintf(log_entry, sizeof(log_entry), "Log entry %d at tick %lu\n",
-                     i, os_get_tick_count());
+                     i, (unsigned long)os_get_tick_count());
             fs_write(fd, log_entry, strlen(log_entry));
             fs_close(fd);
             printf("[Writer] Created %s\n", filename);
@@ -90,12 +90,12 @@ void file_writer(void *param) {
     fs_stats_t stats;
     if (fs_get_stats(&stats) == OS_OK) {
         printf("\n[Writer] File System Statistics:\n");
-        printf("  Total blocks: %lu\n", stats.total_blocks);
-        printf("  Used blocks:  %lu\n", stats.used_blocks);
-        printf("  Free blocks:  %lu\n", stats.free_blocks);
-        printf("  Block size:   %lu bytes\n", stats.block_size);
-        printf("  Total files:  %lu\n", stats.total_files);
-        printf("  Free space:   %lu bytes\n", fs_get_free_space());
+        printf("  Total blocks: %lu\n", (unsigned long)stats.total_blocks);
+        printf("  Used blocks:  %lu\n", (unsigned long)stats.used_blocks);
+        printf("  Free blocks:  %lu\n", (unsigned long)stats.free_blocks);
+        printf("  Block size:   %lu bytes\n", (unsigned long)stats.block_size);
+        printf("  Total files:  %lu\n", (unsigned long)stats.total_files);
+        printf("  Free space:   %lu bytes\n", (unsigned long)fs_get_free_space());
     }
 
     while (1) {
@@ -128,7 +128,7 @@ void file_reader(void *param) {
         }
 
         /* Get file size */
-        printf("[Reader] File size: %ld bytes\n", fs_size(fd));
+        printf("[Reader] File size: %ld bytes\n", (long)fs_size(fd));
         fs_close(fd);
     }
 
@@ -145,7 +145,7 @@ void file_reader(void *param) {
         config_t config;
         if (fs_read(fd, &config, sizeof(config)) == sizeof(config)) {
             printf("[Reader] Configuration:\n");
-            printf("  Device ID:    0x%08lX\n", config.device_id);
+            printf("  Device ID:    0x%08lX\n", (unsigned long)config.device_id);
             printf("  Sample rate:  %u Hz\n", config.sample_rate);
             printf("  WiFi enabled: %s\n", config.enable_wifi ? "Yes" : "No");
             printf("  Power mode:   %u\n", config.power_mode);
@@ -160,12 +160,14 @@ void file_reader(void *param) {
 
         /* Seek to middle of file */
         fs_seek(fd, 10, FS_SEEK_SET);
-        printf("[Reader] Position after seek: %ld\n", fs_tell(fd));
+        printf("[Reader] Position after seek: %ld\n", (long)fs_tell(fd));
 
         /* Read from new position */
         int32_t bytes = fs_read(fd, buffer, 20);
-        buffer[bytes] = '\0';
-        printf("[Reader] Read from position 10: '%s'\n", buffer);
+        if (bytes > 0) {
+            buffer[bytes] = '\0';
+            printf("[Reader] Read from position 10: '%s'\n", buffer);
+        }
 
         fs_close(fd);
     }
@@ -175,9 +177,9 @@ void file_reader(void *param) {
     if (fs_stat("/sensor_log.txt", &stat) == OS_OK) {
         printf("\n[Reader] File statistics for sensor_log.txt:\n");
         printf("  Type: %s\n", stat.type == FS_TYPE_REGULAR ? "Regular file" : "Directory");
-        printf("  Size: %lu bytes\n", stat.size);
-        printf("  Blocks: %lu\n", stat.blocks);
-        printf("  Modified: tick %lu\n", stat.mtime);
+        printf("  Size: %lu bytes\n", (unsigned long)stat.size);
+        printf("  Blocks: %lu\n", (unsigned long)stat.blocks);
+        printf("  Modified: tick %lu\n", (unsigned long)stat.mtime);
     }
 
     /* Test rename */
@@ -219,7 +221,7 @@ void dir_browser(void *param) {
             fs_dirent_t entry;
             while (fs_readdir(dir, &entry) == OS_OK) {
                 const char *type_str = entry.type == FS_TYPE_REGULAR ? "file" : "dir";
-                printf("  %-24s %8s %10lu\n", entry.name, type_str, entry.size);
+                printf("  %-24s %8s %10lu\n", entry.name, type_str, (unsigned long)entry.size);
             }
             fs_closedir(dir);
         } else {
