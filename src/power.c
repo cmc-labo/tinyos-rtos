@@ -259,10 +259,10 @@ os_error_t os_power_configure_wakeup(wakeup_source_t source, bool enable) {
     uint32_t state = os_enter_critical();
 
     if (enable) {
-        power_state.wakeup_sources |= (1 << source);
+        power_state.wakeup_sources |= (1U << source);
         platform_enable_wakeup_source(source);
     } else {
-        power_state.wakeup_sources &= ~(1 << source);
+        power_state.wakeup_sources &= ~(1U << source);
         platform_disable_wakeup_source(source);
     }
 

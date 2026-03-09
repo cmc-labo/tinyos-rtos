@@ -69,7 +69,7 @@ os_error_t os_mpu_set_region(
     /* Calculate region size (must be power of 2) */
     uint32_t size = region->size;
     uint8_t size_bits = 0;
-    while ((1U << size_bits) < size) {
+    while (size_bits < 32 && (1U << size_bits) < size) {
         size_bits++;
     }
 

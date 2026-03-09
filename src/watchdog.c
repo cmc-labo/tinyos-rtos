@@ -128,9 +128,12 @@ wdt_error_t wdt_init(const wdt_config_t *config) {
         return WDT_ERROR_INVALID_PARAM;
     }
 
-    if (config->timeout_ms < WDT_MIN_TIMEOUT_MS ||
-        config->timeout_ms > WDT_MAX_TIMEOUT_MS) {
-        return WDT_ERROR_INVALID_PARAM;
+    if (config->timeout_ms < WDT_MIN_TIMEOUT_MS) {
+        return WDT_ERROR_TIMEOUT_TOO_SHORT;
+    }
+
+    if (config->timeout_ms > WDT_MAX_TIMEOUT_MS) {
+        return WDT_ERROR_TIMEOUT_TOO_LONG;
     }
 
     /* Initialize state */

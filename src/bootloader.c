@@ -126,7 +126,7 @@ static void bootloader_jump_to_app(uint32_t app_address) {
      * 3. Jumping to the reset handler
      */
 
-    printf("Bootloader: Jumping to application at 0x%08lX\n", app_address);
+    printf("Bootloader: Jumping to application at 0x%08lX\n", (unsigned long)app_address);
 
     /* Example for ARM Cortex-M (would need platform-specific implementation):
      *
@@ -282,17 +282,20 @@ void bootloader_main(void) {
 
     /* Determine application address */
     ota_partition_info_t partition_info;
-    ota_get_partition_info(boot_partition, &partition_info);
+    if (ota_get_partition_info(boot_partition, &partition_info) != OTA_OK) {
+        printf("Bootloader: Failed to get partition info\n");
+        return;
+    }
     app_address = partition_info.start_address;
 
     printf("Bootloader: Booting from partition %s (0x%08lX)\n",
            boot_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B",
-           app_address);
-    printf("Bootloader: Boot count: %lu\n", boot_info.boot_count);
+           (unsigned long)app_address);
+    printf("Bootloader: Boot count: %lu\n", (unsigned long)boot_info.boot_count);
 
     if (!boot_info.boot_confirmed) {
         printf("Bootloader: WARNING - Boot not yet confirmed (attempts: %lu/%d)\n",
-               boot_info.boot_attempts, MAX_BOOT_ATTEMPTS);
+               (unsigned long)boot_info.boot_attempts, MAX_BOOT_ATTEMPTS);
         printf("Bootloader: Application must call ota_confirm_boot() to prevent rollback\n");
     }
 
@@ -329,10 +332,10 @@ void bootloader_print_info(void) {
                boot_info.active_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B");
         printf("Pending Partition: %s\n",
                boot_info.pending_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B");
-        printf("Boot Count: %lu\n", boot_info.boot_count);
-        printf("Rollback Count: %lu\n", boot_info.rollback_count);
+        printf("Boot Count: %lu\n", (unsigned long)boot_info.boot_count);
+        printf("Rollback Count: %lu\n", (unsigned long)boot_info.rollback_count);
         printf("Boot Confirmed: %s\n", boot_info.boot_confirmed ? "Yes" : "No");
-        printf("Boot Attempts: %lu/%d\n", boot_info.boot_attempts, MAX_BOOT_ATTEMPTS);
+        printf("Boot Attempts: %lu/%d\n", (unsigned long)boot_info.boot_attempts, MAX_BOOT_ATTEMPTS);
         printf("Rollback Enabled: %s\n", boot_info.rollback_enabled ? "Yes" : "No");
     } else {
         printf("Boot info not available\n");

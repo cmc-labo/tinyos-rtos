@@ -102,6 +102,9 @@ os_error_t net_http_request(
         method_str, path,
         IPV4_ADDR(server_ip)
     );
+    if (req_len < 0 || req_len >= (int)sizeof(request)) {
+        req_len = (int)sizeof(request) - 1;
+    }
 
     /* Add custom headers */
     if (headers) {
