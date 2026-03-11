@@ -108,8 +108,9 @@ typedef enum {
 #define OS_ERR_NO_RESOURCE      OS_ERROR_NO_RESOURCE
 #define OS_ERR_NOT_INITIALIZED  OS_ERROR_NOT_INITIALIZED
 
-/* Special timeout value: wait indefinitely */
-#define OS_WAIT_FOREVER         UINT32_MAX
+/* Special timeout value: wait indefinitely.
+ * Blocking APIs treat timeout == 0 as "no timeout", so this must be 0. */
+#define OS_WAIT_FOREVER         0U
 
 /* Mutex for synchronization */
 typedef struct {

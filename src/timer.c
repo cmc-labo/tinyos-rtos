@@ -190,11 +190,9 @@ os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms) {
         return OS_ERROR_INVALID_PARAM;
     }
 
-    uint32_t state = os_enter_critical();
-
     bool was_active = timer->active;
 
-    /* Stop timer if active */
+    /* Stop timer if active (os_timer_stop handles its own critical section) */
     if (was_active) {
         os_timer_stop(timer);
     }
@@ -202,12 +200,10 @@ os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms) {
     /* Update period */
     timer->period = new_period_ms;
 
-    /* Restart if it was active */
+    /* Restart if it was active (os_timer_start handles its own critical section) */
     if (was_active) {
         os_timer_start(timer);
     }
-
-    os_exit_critical(state);
 
     return OS_OK;
 }

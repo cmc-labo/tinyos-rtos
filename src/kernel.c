@@ -739,6 +739,12 @@ const char *os_error_to_string(os_error_t error) {
             return "Timeout";
         case OS_ERROR_PERMISSION_DENIED:
             return "Permission denied";
+        case OS_ERROR_NOT_IMPLEMENTED:
+            return "Not implemented";
+        case OS_ERROR_NO_RESOURCE:
+            return "No resource";
+        case OS_ERROR_NOT_INITIALIZED:
+            return "Not initialized";
         default:
             return "Unknown error";
     }
