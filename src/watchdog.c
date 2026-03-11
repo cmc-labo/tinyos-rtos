@@ -98,7 +98,9 @@ static void wdt_check_tasks(void) {
             /* Task timeout detected */
             entry->timeout_count++;
             g_wdt_state.stats.task_timeouts++;
+            g_wdt_state.stats.total_timeouts++;
             g_wdt_state.stats.last_timeout_task = entry->task;
+            g_wdt_state.stats.last_reset_reason = WDT_RESET_TASK_TIMEOUT;
 
             /* Call callback if configured */
             if (g_wdt_state.config.callback) {
@@ -551,6 +553,7 @@ void wdt_trigger_reset(void) {
 
     g_wdt_state.reset_reason = WDT_RESET_SOFTWARE;
     g_wdt_state.stats.sw_resets++;
+    g_wdt_state.stats.last_reset_reason = WDT_RESET_SOFTWARE;
 
     hal_wdt_trigger_reset();
 }
