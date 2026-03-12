@@ -142,7 +142,18 @@ void os_free(void *ptr) {
     block->next = mem.free_list;
     mem.free_list = block;
 
-    /* TODO: Coalesce adjacent free blocks */
+    /* Coalesce adjacent free blocks */
+    memory_block_t *cur = mem.free_list;
+    while (cur != NULL) {
+        memory_block_t *neighbor = (memory_block_t *)((uint8_t *)cur + cur->size);
+        if ((uint8_t *)neighbor < mem.pool + MEMORY_POOL_SIZE &&
+            !neighbor->allocated) {
+            cur->size += neighbor->size;
+            cur->next = neighbor->next;
+        } else {
+            cur = cur->next;
+        }
+    }
 
     os_exit_critical(state);
 }

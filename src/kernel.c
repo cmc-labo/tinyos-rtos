@@ -11,6 +11,7 @@
 static struct {
     tcb_t *current_task;
     tcb_t *ready_queue[256];  /* Priority-based ready queue */
+    uint32_t ready_bitmap[8]; /* Bitmap: bit set = that priority has ready task */
     tcb_t task_pool[MAX_TASKS];
     uint8_t task_count;
     volatile uint32_t tick_count;
@@ -51,12 +52,17 @@ void os_init(void) {
  * Find highest priority ready task
  */
 static tcb_t *scheduler_get_next_task(void) {
-    for (int i = 0; i < 256; i++) {
-        if (kernel.ready_queue[i] != NULL) {
+    /* Use bitmap to find highest priority (lowest index) in O(1) */
+    for (int w = 0; w < 8; w++) {
+        if (kernel.ready_bitmap[w] != 0) {
+            int bit = __builtin_ctz(kernel.ready_bitmap[w]);
+            int i = w * 32 + bit;
             tcb_t *task = kernel.ready_queue[i];
-            /* Remove from ready queue */
             kernel.ready_queue[i] = task->next;
             task->next = NULL;
+            if (kernel.ready_queue[i] == NULL) {
+                kernel.ready_bitmap[w] &= ~(1u << bit);
+            }
             return task;
         }
     }
@@ -82,6 +88,8 @@ static void scheduler_add_ready_task(tcb_t *task) {
         current->next = task;
     }
     task->next = NULL;
+    /* Mark bitmap */
+    kernel.ready_bitmap[task->priority / 32] |= (1u << (task->priority % 32));
 }
 
 /**
@@ -402,6 +410,9 @@ static void scheduler_remove_task(tcb_t *task) {
                 prev->next = current->next;
             }
             current->next = NULL;
+            if (kernel.ready_queue[task->priority] == NULL) {
+                kernel.ready_bitmap[task->priority / 32] &= ~(1u << (task->priority % 32));
+            }
             return;
         }
         prev = current;
