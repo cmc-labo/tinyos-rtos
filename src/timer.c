@@ -65,6 +65,26 @@ os_error_t os_timer_create(
 }
 
 /**
+ * Insert timer into sorted active list (must be called within critical section)
+ */
+static void timer_insert_sorted(timer_t *timer) {
+    if (timer_manager.active_timers == NULL ||
+        timer->expire_time < timer_manager.active_timers->expire_time) {
+        timer->next = timer_manager.active_timers;
+        timer_manager.active_timers = timer;
+    } else {
+        timer_t *current = timer_manager.active_timers;
+        while (current->next != NULL &&
+               current->next->expire_time <= timer->expire_time) {
+            current = current->next;
+        }
+        timer->next = current->next;
+        current->next = timer;
+    }
+    timer_manager.timer_count++;
+}
+
+/**
  * Start a timer
  */
 os_error_t os_timer_start(timer_t *timer) {
@@ -83,27 +103,7 @@ os_error_t os_timer_start(timer_t *timer) {
     timer->expire_time = os_get_tick_count() + timer->period;
     timer->active = true;
 
-    /* Insert timer into active list (sorted by expire time) */
-    if (timer_manager.active_timers == NULL) {
-        /* List is empty */
-        timer_manager.active_timers = timer;
-        timer->next = NULL;
-    } else if (timer->expire_time < timer_manager.active_timers->expire_time) {
-        /* Insert at head */
-        timer->next = timer_manager.active_timers;
-        timer_manager.active_timers = timer;
-    } else {
-        /* Insert in sorted position */
-        timer_t *current = timer_manager.active_timers;
-        while (current->next != NULL &&
-               current->next->expire_time <= timer->expire_time) {
-            current = current->next;
-        }
-        timer->next = current->next;
-        current->next = timer;
-    }
-
-    timer_manager.timer_count++;
+    timer_insert_sorted(timer);
 
     os_exit_critical(state);
 
@@ -262,25 +262,9 @@ void os_timer_process(void) {
             if (expired_timer->type == TIMER_AUTO_RELOAD) {
                 expired_timer->expire_time = current_time + expired_timer->period;
                 expired_timer->active = true;
-
-                /* Re-insert into list */
-                if (timer_manager.active_timers == NULL ||
-                    expired_timer->expire_time < timer_manager.active_timers->expire_time) {
-                    expired_timer->next = timer_manager.active_timers;
-                    timer_manager.active_timers = expired_timer;
-                    timer = timer_manager.active_timers->next;
-                    prev = timer_manager.active_timers;
-                } else {
-                    timer_t *current = timer_manager.active_timers;
-                    while (current->next != NULL &&
-                           current->next->expire_time <= expired_timer->expire_time) {
-                        current = current->next;
-                    }
-                    expired_timer->next = current->next;
-                    current->next = expired_timer;
-                }
-
-                timer_manager.timer_count++;
+                timer_insert_sorted(expired_timer);
+                prev = NULL;
+                timer = timer_manager.active_timers;
             }
         } else {
             /* Timers are sorted, so we can break early */
