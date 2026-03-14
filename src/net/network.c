@@ -13,6 +13,7 @@
 /* Network buffer pool */
 static net_buffer_t buffer_pool[NET_MAX_BUFFERS];
 static mutex_t buffer_mutex;
+static net_buffer_t *buffer_free_list;
 
 /* Network driver */
 static net_driver_t *current_driver = NULL;
@@ -47,11 +48,12 @@ extern void net_tcp_init(void);
 static void net_buffer_pool_init(void) {
     os_mutex_init(&buffer_mutex);
 
+    buffer_free_list = &buffer_pool[0];
     for (int i = 0; i < NET_MAX_BUFFERS; i++) {
         buffer_pool[i].in_use = false;
         buffer_pool[i].length = 0;
         buffer_pool[i].offset = 0;
-        buffer_pool[i].next = NULL;
+        buffer_pool[i].next = (i + 1 < NET_MAX_BUFFERS) ? &buffer_pool[i + 1] : NULL;
     }
 }
 
@@ -60,19 +62,15 @@ static void net_buffer_pool_init(void) {
  * @return Pointer to buffer or NULL if none available
  */
 net_buffer_t *net_buffer_alloc(void) {
-    net_buffer_t *buf = NULL;
-
     os_mutex_lock(&buffer_mutex, OS_WAIT_FOREVER);
 
-    for (int i = 0; i < NET_MAX_BUFFERS; i++) {
-        if (!buffer_pool[i].in_use) {
-            buf = &buffer_pool[i];
-            buf->in_use = true;
-            buf->length = 0;
-            buf->offset = 0;
-            buf->next = NULL;
-            break;
-        }
+    net_buffer_t *buf = buffer_free_list;
+    if (buf != NULL) {
+        buffer_free_list = buf->next;
+        buf->in_use = true;
+        buf->length = 0;
+        buf->offset = 0;
+        buf->next = NULL;
     }
 
     os_mutex_unlock(&buffer_mutex);
@@ -94,7 +92,8 @@ void net_buffer_free(net_buffer_t *buf) {
     buf->in_use = false;
     buf->length = 0;
     buf->offset = 0;
-    buf->next = NULL;
+    buf->next = buffer_free_list;
+    buffer_free_list = buf;
 
     os_mutex_unlock(&buffer_mutex);
 }
