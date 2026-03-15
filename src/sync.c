@@ -482,6 +482,25 @@ uint32_t os_event_group_get_bits(event_group_t *event_group) {
  */
 
 /**
+ * Remove a task from a condition variable's wait queue (must be called within critical section)
+ */
+static void cond_remove_task(cond_var_t *cond, tcb_t *task) {
+    if (cond->wait_queue == task) {
+        cond->wait_queue = task->next;
+    } else {
+        tcb_t *prev = cond->wait_queue;
+        while (prev != NULL && prev->next != task) {
+            prev = prev->next;
+        }
+        if (prev != NULL) {
+            prev->next = task->next;
+        }
+    }
+    cond->waiting_count--;
+    task->next = NULL;
+}
+
+/**
  * Initialize condition variable
  */
 void os_cond_init(cond_var_t *cond) {
@@ -536,20 +555,7 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
         /* Remove from wait queue if unlock fails */
         state = os_enter_critical();
 
-        /* Remove from queue */
-        if (cond->wait_queue == current_task) {
-            cond->wait_queue = current_task->next;
-        } else {
-            tcb_t *prev = cond->wait_queue;
-            while (prev != NULL && prev->next != current_task) {
-                prev = prev->next;
-            }
-            if (prev != NULL) {
-                prev->next = current_task->next;
-            }
-        }
-        cond->waiting_count--;
-        current_task->next = NULL;
+        cond_remove_task(cond, current_task);
 
         os_exit_critical(state);
         return unlock_result;
@@ -587,19 +593,7 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
             /* Timeout - remove ourselves from wait queue */
             state = os_enter_critical();
 
-            if (cond->wait_queue == current_task) {
-                cond->wait_queue = current_task->next;
-            } else {
-                tcb_t *prev = cond->wait_queue;
-                while (prev != NULL && prev->next != current_task) {
-                    prev = prev->next;
-                }
-                if (prev != NULL) {
-                    prev->next = current_task->next;
-                }
-            }
-            cond->waiting_count--;
-            current_task->next = NULL;
+            cond_remove_task(cond, current_task);
 
             os_exit_critical(state);
 
