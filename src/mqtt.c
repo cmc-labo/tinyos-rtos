@@ -121,26 +121,26 @@ static mqtt_error_t mqtt_receive_packet(mqtt_client_t *client, uint8_t *msg_type
     uint8_t header[5];
     int32_t received;
 
-    /* Read fixed header (minimum 2 bytes) */
-    received = net_recv(client->socket, header, 1, timeout_ms);
+    /* Read fixed header in one call (1 byte type + up to 4 bytes remaining length) */
+    received = net_recv(client->socket, header, sizeof(header), timeout_ms);
     if (received <= 0) {
         return (received == 0) ? MQTT_ERROR_TIMEOUT : MQTT_ERROR_NETWORK;
+    }
+    if (received < 2) {
+        return MQTT_ERROR_NETWORK;
     }
 
     *msg_type = (header[0] >> 4) & 0x0F;
 
-    /* Read remaining length */
-    uint16_t len_bytes = 0;
-    do {
-        received = net_recv(client->socket, &header[1 + len_bytes], 1, timeout_ms);
-        if (received <= 0) {
-            return MQTT_ERROR_NETWORK;
-        }
-        len_bytes++;
-    } while ((header[len_bytes] & 0x80) != 0 && len_bytes < 4);
-
     uint16_t bytes_used;
     uint32_t remaining_length = mqtt_decode_remaining_length(&header[1], &bytes_used);
+
+    /* Push back any payload bytes that were read ahead into rx_buffer */
+    uint16_t header_size = 1 + bytes_used;
+    uint16_t extra = (uint16_t)received - header_size;
+    if (extra > 0) {
+        memcpy(client->rx_buffer, &header[header_size], extra);
+    }
 
     /* Read remaining packet */
     if (remaining_length > 0) {
@@ -148,7 +148,7 @@ static mqtt_error_t mqtt_receive_packet(mqtt_client_t *client, uint8_t *msg_type
             return MQTT_ERROR_BUFFER_OVERFLOW;
         }
 
-        uint32_t total_received = 0;
+        uint32_t total_received = extra;  /* Account for bytes already read ahead */
         while (total_received < remaining_length) {
             received = net_recv(client->socket,
                                &client->rx_buffer[total_received],
