@@ -76,9 +76,11 @@ static struct {
     fs_file_handle_t files[FS_MAX_OPEN_FILES];
     struct fs_dir_s dirs[4];    /* Maximum 4 open directories */
     mutex_t fs_lock;            /* Global file system lock */
-    uint8_t block_cache[FS_BLOCK_SIZE];  /* Single block cache */
-    uint32_t cached_block;
-    bool cache_dirty;
+#define FS_CACHE_ENTRIES 4
+    uint8_t block_cache[FS_CACHE_ENTRIES][FS_BLOCK_SIZE];
+    uint32_t cached_block[FS_CACHE_ENTRIES];
+    bool cache_dirty[FS_CACHE_ENTRIES];
+    uint8_t cache_next;  /* Round-robin eviction index */
 } fs_state;
 
 /* Bitmap for block allocation (stored in memory) */
@@ -111,8 +113,11 @@ os_error_t fs_init(void) {
         fs_state.dirs[i].in_use = false;
     }
 
-    fs_state.cached_block = 0xFFFFFFFF;
-    fs_state.cache_dirty = false;
+    for (int i = 0; i < FS_CACHE_ENTRIES; i++) {
+        fs_state.cached_block[i] = 0xFFFFFFFF;
+        fs_state.cache_dirty[i] = false;
+    }
+    fs_state.cache_next = 0;
 
     return OS_OK;
 }
@@ -262,9 +267,11 @@ static os_error_t fs_read_block(uint32_t block, void *buffer) {
     }
 
     /* Check cache */
-    if (block == fs_state.cached_block) {
-        memcpy(buffer, fs_state.block_cache, FS_BLOCK_SIZE);
-        return OS_OK;
+    for (int i = 0; i < FS_CACHE_ENTRIES; i++) {
+        if (block == fs_state.cached_block[i]) {
+            memcpy(buffer, fs_state.block_cache[i], FS_BLOCK_SIZE);
+            return OS_OK;
+        }
     }
 
     /* Read from device */
@@ -272,13 +279,15 @@ static os_error_t fs_read_block(uint32_t block, void *buffer) {
         return OS_ERROR;
     }
 
-    /* Update cache */
-    if (fs_state.cache_dirty) {
-        fs_sync_cache();
+    /* Evict round-robin slot */
+    uint8_t slot = fs_state.cache_next;
+    if (fs_state.cache_dirty[slot]) {
+        fs_state.device->write(fs_state.cached_block[slot], fs_state.block_cache[slot], 1);
+        fs_state.cache_dirty[slot] = false;
     }
-    memcpy(fs_state.block_cache, buffer, FS_BLOCK_SIZE);
-    fs_state.cached_block = block;
-    fs_state.cache_dirty = false;
+    memcpy(fs_state.block_cache[slot], buffer, FS_BLOCK_SIZE);
+    fs_state.cached_block[slot] = block;
+    fs_state.cache_next = (slot + 1) % FS_CACHE_ENTRIES;
 
     return OS_OK;
 }
@@ -291,11 +300,13 @@ static os_error_t fs_write_block(uint32_t block, const void *buffer) {
         return OS_ERROR;
     }
 
-    /* Update cache if this block is cached */
-    if (block == fs_state.cached_block) {
-        memcpy(fs_state.block_cache, buffer, FS_BLOCK_SIZE);
-        fs_state.cache_dirty = true;
-        return OS_OK;
+    /* Update cache if this block is already cached */
+    for (int i = 0; i < FS_CACHE_ENTRIES; i++) {
+        if (block == fs_state.cached_block[i]) {
+            memcpy(fs_state.block_cache[i], buffer, FS_BLOCK_SIZE);
+            fs_state.cache_dirty[i] = true;
+            return OS_OK;
+        }
     }
 
     /* Write directly to device */
@@ -310,11 +321,13 @@ static os_error_t fs_write_block(uint32_t block, const void *buffer) {
  * Sync cached block to storage
  */
 static os_error_t fs_sync_cache(void) {
-    if (fs_state.cache_dirty && fs_state.cached_block != 0xFFFFFFFF) {
-        if (fs_state.device->write(fs_state.cached_block, fs_state.block_cache, 1) != 0) {
-            return OS_ERROR;
+    for (int i = 0; i < FS_CACHE_ENTRIES; i++) {
+        if (fs_state.cache_dirty[i] && fs_state.cached_block[i] != 0xFFFFFFFF) {
+            if (fs_state.device->write(fs_state.cached_block[i], fs_state.block_cache[i], 1) != 0) {
+                return OS_ERROR;
+            }
+            fs_state.cache_dirty[i] = false;
         }
-        fs_state.cache_dirty = false;
     }
     return OS_OK;
 }
