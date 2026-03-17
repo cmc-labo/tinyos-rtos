@@ -69,6 +69,12 @@ __attribute__((weak)) void hal_wdt_clear_reset_flag(void) {
  * Internal Helper Functions
  * ======================================================================== */
 
+static uint32_t wdt_calc_time_remaining(void) {
+    uint32_t elapsed = os_get_tick_count() - g_wdt_state.last_feed_time;
+    return (elapsed < g_wdt_state.config.timeout_ms) ?
+           (g_wdt_state.config.timeout_ms - elapsed) : 0;
+}
+
 static wdt_task_entry_t *find_task_entry(tcb_t *task) {
     for (uint32_t i = 0; i < g_wdt_state.num_registered_tasks; i++) {
         if (g_wdt_state.task_entries[i].task == task) {
@@ -422,10 +428,7 @@ wdt_error_t wdt_get_status(wdt_status_t *status) {
     status->last_feed_time = g_wdt_state.last_feed_time;
     status->registered_tasks = g_wdt_state.num_registered_tasks;
 
-    uint32_t current_time = os_get_tick_count();
-    uint32_t elapsed = current_time - g_wdt_state.last_feed_time;
-    status->time_remaining_ms = (elapsed < g_wdt_state.config.timeout_ms) ?
-                                (g_wdt_state.config.timeout_ms - elapsed) : 0;
+    status->time_remaining_ms = wdt_calc_time_remaining();
 
     return WDT_OK;
 }
@@ -459,11 +462,7 @@ uint32_t wdt_get_time_remaining(void) {
         return 0;
     }
 
-    uint32_t current_time = os_get_tick_count();
-    uint32_t elapsed = current_time - g_wdt_state.last_feed_time;
-
-    return (elapsed < g_wdt_state.config.timeout_ms) ?
-           (g_wdt_state.config.timeout_ms - elapsed) : 0;
+    return wdt_calc_time_remaining();
 }
 
 /* ========================================================================
