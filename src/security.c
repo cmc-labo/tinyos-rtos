@@ -43,10 +43,7 @@ void os_mpu_enable(bool enable) {
         MPU_CTRL = 0;
     }
 
-    /* Data Synchronization Barrier */
-    __asm__ volatile("dsb");
-    /* Instruction Synchronization Barrier */
-    __asm__ volatile("isb");
+    __asm__ volatile("dsb\n\tisb");
 }
 
 /**
@@ -68,10 +65,7 @@ os_error_t os_mpu_set_region(
 
     /* Calculate region size (must be power of 2) */
     uint32_t size = region->size;
-    uint8_t size_bits = 0;
-    while (size_bits < 32 && (1U << size_bits) < size) {
-        size_bits++;
-    }
+    uint8_t size_bits = (size > 1) ? (uint8_t)(32 - __builtin_clz(size - 1)) : 0;
 
     if (size_bits < 5 || size_bits > 31) {  /* 32 bytes to 4GB */
         return OS_ERROR_INVALID_PARAM;
