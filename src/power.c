@@ -148,9 +148,9 @@ void os_power_enter_idle(void) {
 }
 
 /**
- * Enter sleep mode
+ * Common sleep entry/exit logic
  */
-os_error_t os_power_enter_sleep(uint32_t duration_ms) {
+static os_error_t power_do_sleep(uint32_t duration_ms, power_mode_t mode, void (*platform_fn)(void)) {
     if (duration_ms == 0) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -160,20 +160,13 @@ os_error_t os_power_enter_sleep(uint32_t duration_ms) {
     }
 
     uint32_t state = os_enter_critical();
-
     power_mode_t old_mode = power_state.current_mode;
-    power_state.current_mode = POWER_MODE_SLEEP;
-
-    /* Calculate sleep duration in ticks */
-    uint32_t sleep_ticks = (duration_ms * TICK_RATE_HZ) / 1000;
-    power_state.sleep_ticks = sleep_ticks;
-
+    power_state.current_mode = mode;
+    power_state.sleep_ticks = (duration_ms * TICK_RATE_HZ) / 1000;
     os_exit_critical(state);
 
-    /* Enter platform sleep mode */
-    platform_enter_sleep_mode();
+    platform_fn();
 
-    /* Woken up */
     state = os_enter_critical();
     power_state.current_mode = old_mode;
     power_state.total_sleep_time_ms += duration_ms;
@@ -183,38 +176,17 @@ os_error_t os_power_enter_sleep(uint32_t duration_ms) {
 }
 
 /**
+ * Enter sleep mode
+ */
+os_error_t os_power_enter_sleep(uint32_t duration_ms) {
+    return power_do_sleep(duration_ms, POWER_MODE_SLEEP, platform_enter_sleep_mode);
+}
+
+/**
  * Enter deep sleep mode
  */
 os_error_t os_power_enter_deep_sleep(uint32_t duration_ms) {
-    if (duration_ms == 0) {
-        return OS_ERROR_INVALID_PARAM;
-    }
-
-    if (!power_state.config.sleep_mode_enabled) {
-        return OS_ERROR_PERMISSION_DENIED;
-    }
-
-    uint32_t state = os_enter_critical();
-
-    power_mode_t old_mode = power_state.current_mode;
-    power_state.current_mode = POWER_MODE_DEEP_SLEEP;
-
-    /* Calculate sleep duration */
-    uint32_t sleep_ticks = (duration_ms * TICK_RATE_HZ) / 1000;
-    power_state.sleep_ticks = sleep_ticks;
-
-    os_exit_critical(state);
-
-    /* Enter platform deep sleep mode */
-    platform_enter_deep_sleep_mode();
-
-    /* Woken up */
-    state = os_enter_critical();
-    power_state.current_mode = old_mode;
-    power_state.total_sleep_time_ms += duration_ms;
-    os_exit_critical(state);
-
-    return OS_OK;
+    return power_do_sleep(duration_ms, POWER_MODE_DEEP_SLEEP, platform_enter_deep_sleep_mode);
 }
 
 /**
@@ -286,20 +258,7 @@ void os_power_get_stats(power_stats_t *stats) {
     stats->wakeup_sources = power_state.wakeup_sources;
     stats->power_consumption_mw = platform_get_power_consumption_mw();
 
-    /* Calculate battery life estimate (if configured) */
-    if (power_state.config.battery_capacity_mah > 0) {
-        uint32_t avg_power_mw = stats->power_consumption_mw;
-        uint32_t battery_mwh = power_state.config.battery_capacity_mah *
-                               power_state.config.battery_voltage_mv / 1000;
-
-        if (avg_power_mw > 0) {
-            stats->estimated_battery_life_hours = battery_mwh / avg_power_mw;
-        } else {
-            stats->estimated_battery_life_hours = 0xFFFFFFFF; /* Effectively infinite */
-        }
-    } else {
-        stats->estimated_battery_life_hours = 0;
-    }
+    stats->estimated_battery_life_hours = os_power_estimate_battery_life_hours();
 
     os_exit_critical(state);
 }
