@@ -152,11 +152,9 @@ static void bootloader_handle_boot_failure(bootloader_boot_info_t *boot_info) {
     boot_info->rollback_count++;
 
     /* Switch to alternate partition */
-    if (boot_info->active_partition == OTA_PARTITION_APP_A) {
-        boot_info->active_partition = OTA_PARTITION_APP_B;
-    } else {
-        boot_info->active_partition = OTA_PARTITION_APP_A;
-    }
+    boot_info->active_partition =
+        (boot_info->active_partition == OTA_PARTITION_APP_A)
+        ? OTA_PARTITION_APP_B : OTA_PARTITION_APP_A;
 
     boot_info->pending_partition = boot_info->active_partition;
     boot_info->boot_confirmed = true;

@@ -620,8 +620,8 @@ ota_error_t ota_rollback(void) {
 
     /* Swap partitions */
     ota_partition_type_t rollback_partition =
-        (ota_state.running_partition == OTA_PARTITION_APP_A) ?
-        OTA_PARTITION_APP_B : OTA_PARTITION_APP_A;
+        (ota_state.running_partition == OTA_PARTITION_APP_A)
+        ? OTA_PARTITION_APP_B : OTA_PARTITION_APP_A;
 
     ota_state.boot_info.active_partition = rollback_partition;
     ota_state.boot_info.pending_partition = rollback_partition;
@@ -692,13 +692,7 @@ uint32_t ota_get_partition_version(ota_partition_type_t type) {
 }
 
 int ota_compare_versions(uint32_t version1, uint32_t version2) {
-    if (version1 < version2) {
-        return -1;
-    } else if (version1 > version2) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return (version1 > version2) - (version1 < version2);
 }
 
 /* ============================================================================
