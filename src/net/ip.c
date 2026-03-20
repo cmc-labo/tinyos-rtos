@@ -77,6 +77,25 @@ static uint32_t ntohl(uint32_t netlong) {
 }
 
 /*===========================================================================
+ * Internal Helpers
+ *===========================================================================*/
+
+static void ip_fill_header(ip_header_t *hdr, ipv4_addr_t src, ipv4_addr_t dest,
+                           uint8_t protocol, uint16_t total_length, uint16_t id) {
+    hdr->version_ihl   = 0x45;
+    hdr->tos           = 0;
+    hdr->total_length  = htons(total_length);
+    hdr->identification = htons(id);
+    hdr->flags_fragment = 0;
+    hdr->ttl           = 64;
+    hdr->protocol      = protocol;
+    hdr->src           = src;
+    hdr->dest          = dest;
+    hdr->checksum      = 0;
+    hdr->checksum      = net_checksum(hdr, sizeof(ip_header_t));
+}
+
+/*===========================================================================
  * IP Layer Initialization
  *===========================================================================*/
 
@@ -116,17 +135,8 @@ static void icmp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip)
             net_get_ip_addr(&my_ip);
 
             /* Build IP header */
-            ip_hdr->version_ihl = 0x45;  /* Version 4, IHL 5 (20 bytes) */
-            ip_hdr->tos = 0;
-            ip_hdr->total_length = htons(sizeof(ip_header_t) + length);
-            ip_hdr->identification = 0;
-            ip_hdr->flags_fragment = 0;
-            ip_hdr->ttl = 64;
-            ip_hdr->protocol = IP_PROTOCOL_ICMP;
-            ip_hdr->src = my_ip;
-            ip_hdr->dest = src_ip;
-            ip_hdr->checksum = 0;
-            ip_hdr->checksum = net_checksum(ip_hdr, sizeof(ip_header_t));
+            ip_fill_header(ip_hdr, my_ip, src_ip, IP_PROTOCOL_ICMP,
+                           sizeof(ip_header_t) + length, 0);
 
             /* Build ICMP reply */
             memcpy(icmp_reply, icmp, length);
@@ -178,17 +188,8 @@ os_error_t net_ping(ipv4_addr_t dest_ip, uint32_t timeout_ms, uint32_t *rtt) {
     uint16_t current_seq = ping_sequence;
 
     /* Build IP header */
-    ip_hdr->version_ihl = 0x45;
-    ip_hdr->tos = 0;
-    ip_hdr->total_length = htons(sizeof(packet));
-    ip_hdr->identification = htons(current_id);
-    ip_hdr->flags_fragment = 0;
-    ip_hdr->ttl = 64;
-    ip_hdr->protocol = IP_PROTOCOL_ICMP;
-    ip_hdr->src = my_ip;
-    ip_hdr->dest = dest_ip;
-    ip_hdr->checksum = 0;
-    ip_hdr->checksum = net_checksum(ip_hdr, sizeof(ip_header_t));
+    ip_fill_header(ip_hdr, my_ip, dest_ip, IP_PROTOCOL_ICMP,
+                   sizeof(packet), current_id);
 
     /* Build ICMP header */
     icmp->type = ICMP_TYPE_ECHO_REQUEST;
@@ -325,17 +326,8 @@ os_error_t net_ip_send(ipv4_addr_t dest_ip, uint8_t protocol, const uint8_t *dat
     net_get_ip_addr(&my_ip);
 
     /* Build IP header */
-    ip_hdr->version_ihl = 0x45;  /* Version 4, IHL 5 */
-    ip_hdr->tos = 0;
-    ip_hdr->total_length = htons(sizeof(ip_header_t) + length);
-    ip_hdr->identification = 0;
-    ip_hdr->flags_fragment = 0;
-    ip_hdr->ttl = 64;
-    ip_hdr->protocol = protocol;
-    ip_hdr->src = my_ip;
-    ip_hdr->dest = dest_ip;
-    ip_hdr->checksum = 0;
-    ip_hdr->checksum = net_checksum(ip_hdr, sizeof(ip_header_t));
+    ip_fill_header(ip_hdr, my_ip, dest_ip, protocol,
+                   sizeof(ip_header_t) + length, 0);
 
     /* Copy payload */
     memcpy(packet + sizeof(ip_header_t), data, length);

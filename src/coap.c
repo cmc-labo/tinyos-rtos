@@ -82,10 +82,6 @@ coap_error_t coap_pdu_init(coap_pdu_t *pdu, coap_msg_type_t type, uint8_t code, 
     pdu->type = type;
     pdu->code = code;
     pdu->message_id = message_id;
-    pdu->token_length = 0;
-    pdu->option_count = 0;
-    pdu->payload = NULL;
-    pdu->payload_length = 0;
 
     return COAP_OK;
 }
@@ -426,9 +422,10 @@ static coap_error_t coap_send_request_internal(
             path = NULL;
         }
 
-        if (strlen(path_segment) > 0) {
+        size_t seg_len = strlen(path_segment);
+        if (seg_len > 0) {
             coap_pdu_add_option(&request, COAP_OPTION_URI_PATH,
-                              (const uint8_t *)path_segment, strlen(path_segment));
+                              (const uint8_t *)path_segment, seg_len);
         }
     }
 
