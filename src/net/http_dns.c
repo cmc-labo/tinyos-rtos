@@ -39,11 +39,9 @@ static bool parse_url(const char *url, ipv4_addr_t *ip, uint16_t *port, char *pa
     *port = 80;
     if (*p == ':') {
         p++;
-        *port = 0;
-        while (*p >= '0' && *p <= '9') {
-            *port = (*port) * 10 + (*p - '0');
-            p++;
-        }
+        char *end;
+        *port = (uint16_t)strtoul(p, &end, 10);
+        p = end;
     }
 
     /* Extract path */

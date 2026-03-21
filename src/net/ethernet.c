@@ -139,69 +139,51 @@ static bool arp_cache_lookup(ipv4_addr_t ip, mac_addr_t *mac) {
 }
 
 /**
- * @brief Send ARP request
+ * @brief Build and send an ARP frame (common path for request and reply)
  */
-static os_error_t arp_send_request(ipv4_addr_t target_ip) {
+static os_error_t arp_send(mac_addr_t dest_mac, uint16_t opcode,
+                            mac_addr_t target_mac, ipv4_addr_t target_ip) {
     uint8_t frame[ETH_HEADER_SIZE + sizeof(arp_packet_t)];
     eth_header_t *eth = (eth_header_t *)frame;
     arp_packet_t *arp = (arp_packet_t *)(frame + ETH_HEADER_SIZE);
 
     mac_addr_t my_mac;
     ipv4_addr_t my_ip;
-
     net_get_mac_addr(&my_mac);
     net_get_ip_addr(&my_ip);
 
-    /* Ethernet header (broadcast) */
-    memset(eth->dest.addr, 0xFF, 6);  /* Broadcast MAC */
-    eth->src = my_mac;
+    eth->dest = dest_mac;
+    eth->src  = my_mac;
     eth->type = htons(ETH_TYPE_ARP);
 
-    /* ARP packet */
     arp->hardware_type = htons(ARP_HARDWARE_ETHERNET);
     arp->protocol_type = htons(ARP_PROTOCOL_IP);
     arp->hardware_size = 6;
     arp->protocol_size = 4;
-    arp->opcode = htons(ARP_OP_REQUEST);
-    arp->sender_mac = my_mac;
-    arp->sender_ip = my_ip;
-    memset(arp->target_mac.addr, 0, 6);
-    arp->target_ip = target_ip;
+    arp->opcode        = htons(opcode);
+    arp->sender_mac    = my_mac;
+    arp->sender_ip     = my_ip;
+    arp->target_mac    = target_mac;
+    arp->target_ip     = target_ip;
 
     return net_driver_send(frame, sizeof(frame));
+}
+
+/**
+ * @brief Send ARP request
+ */
+static os_error_t arp_send_request(ipv4_addr_t target_ip) {
+    mac_addr_t broadcast, zero_mac;
+    memset(broadcast.addr, 0xFF, 6);
+    memset(zero_mac.addr,  0x00, 6);
+    return arp_send(broadcast, ARP_OP_REQUEST, zero_mac, target_ip);
 }
 
 /**
  * @brief Send ARP reply
  */
 static os_error_t arp_send_reply(ipv4_addr_t target_ip, mac_addr_t target_mac) {
-    uint8_t frame[ETH_HEADER_SIZE + sizeof(arp_packet_t)];
-    eth_header_t *eth = (eth_header_t *)frame;
-    arp_packet_t *arp = (arp_packet_t *)(frame + ETH_HEADER_SIZE);
-
-    mac_addr_t my_mac;
-    ipv4_addr_t my_ip;
-
-    net_get_mac_addr(&my_mac);
-    net_get_ip_addr(&my_ip);
-
-    /* Ethernet header */
-    eth->dest = target_mac;
-    eth->src = my_mac;
-    eth->type = htons(ETH_TYPE_ARP);
-
-    /* ARP packet */
-    arp->hardware_type = htons(ARP_HARDWARE_ETHERNET);
-    arp->protocol_type = htons(ARP_PROTOCOL_IP);
-    arp->hardware_size = 6;
-    arp->protocol_size = 4;
-    arp->opcode = htons(ARP_OP_REPLY);
-    arp->sender_mac = my_mac;
-    arp->sender_ip = my_ip;
-    arp->target_mac = target_mac;
-    arp->target_ip = target_ip;
-
-    return net_driver_send(frame, sizeof(frame));
+    return arp_send(target_mac, ARP_OP_REPLY, target_mac, target_ip);
 }
 
 /**

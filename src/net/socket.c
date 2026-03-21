@@ -65,6 +65,10 @@ static uint32_t htonl(uint32_t h) {
 }
 static uint32_t ntohl(uint32_t n) { return htonl(n); }
 
+static inline bool sock_valid(net_socket_t sock) {
+    return sock >= 0 && sock < NET_MAX_SOCKETS && sockets[sock].in_use;
+}
+
 /*===========================================================================
  * Initialization
  *===========================================================================*/
@@ -109,7 +113,7 @@ net_socket_t net_socket(socket_type_t type) {
 }
 
 os_error_t net_bind(net_socket_t sock, const sockaddr_in_t *addr) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return OS_ERR_INVALID_PARAM;
     }
 
@@ -118,7 +122,7 @@ os_error_t net_bind(net_socket_t sock, const sockaddr_in_t *addr) {
 }
 
 os_error_t net_close(net_socket_t sock) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return OS_ERR_INVALID_PARAM;
     }
 
@@ -172,7 +176,7 @@ void net_udp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv
 }
 
 int32_t net_sendto(net_socket_t sock, const void *data, uint16_t length, const sockaddr_in_t *addr) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return -1;
     }
 
@@ -201,7 +205,7 @@ int32_t net_sendto(net_socket_t sock, const void *data, uint16_t length, const s
 }
 
 int32_t net_recvfrom(net_socket_t sock, void *buffer, uint16_t max_length, sockaddr_in_t *addr) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return -1;
     }
 
@@ -280,7 +284,7 @@ void net_tcp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv
 }
 
 os_error_t net_connect(net_socket_t sock, const sockaddr_in_t *addr, uint32_t timeout_ms) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return OS_ERR_INVALID_PARAM;
     }
 
@@ -331,7 +335,7 @@ os_error_t net_connect(net_socket_t sock, const sockaddr_in_t *addr, uint32_t ti
 int32_t net_send(net_socket_t sock, const void *data, uint16_t length, uint32_t timeout_ms) {
     (void)timeout_ms;
 
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return -1;
     }
 
@@ -365,7 +369,7 @@ int32_t net_send(net_socket_t sock, const void *data, uint16_t length, uint32_t 
 }
 
 int32_t net_recv(net_socket_t sock, void *buffer, uint16_t max_length, uint32_t timeout_ms) {
-    if (sock < 0 || sock >= NET_MAX_SOCKETS || !sockets[sock].in_use) {
+    if (!sock_valid(sock)) {
         return -1;
     }
 
