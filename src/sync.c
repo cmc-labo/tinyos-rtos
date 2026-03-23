@@ -425,15 +425,9 @@ os_error_t os_event_group_wait_bits(
         uint32_t state = os_enter_critical();
 
         uint32_t current_events = event_group->events;
-        bool condition_met = false;
-
-        if (wait_all) {
-            /* Wait for ALL specified bits */
-            condition_met = (current_events & bits_to_wait_for) == bits_to_wait_for;
-        } else {
-            /* Wait for ANY specified bit */
-            condition_met = (current_events & bits_to_wait_for) != 0;
-        }
+        bool condition_met = wait_all
+            ? (current_events & bits_to_wait_for) == bits_to_wait_for  /* ALL bits */
+            : (current_events & bits_to_wait_for) != 0;                /* ANY bit  */
 
         if (condition_met) {
             /* Return the bits that matched */

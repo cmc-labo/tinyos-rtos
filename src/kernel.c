@@ -93,6 +93,16 @@ static void scheduler_add_ready_task(tcb_t *task) {
 }
 
 /**
+ * Move a task to a new priority level within the ready queue
+ * Must be called from within a critical section
+ */
+static void scheduler_reprioritize(tcb_t *task, task_priority_t new_priority) {
+    if (task->state == TASK_STATE_READY) scheduler_remove_task(task);
+    task->priority = new_priority;
+    if (task->state == TASK_STATE_READY) scheduler_add_ready_task(task);
+}
+
+/**
  * Context switch (to be implemented in assembly for target architecture)
  */
 extern void context_switch(uint32_t **old_sp, uint32_t **new_sp);
@@ -450,16 +460,8 @@ os_error_t os_task_set_priority(tcb_t *task, task_priority_t new_priority) {
     }
 
     /* Remove from ready queue before changing priority to ensure correct queue is searched */
-    if (task->state == TASK_STATE_READY) {
-        scheduler_remove_task(task);
-    }
-
-    task->priority = new_priority;
+    scheduler_reprioritize(task, new_priority);
     task->base_priority = new_priority;  /* Update base priority too */
-
-    if (task->state == TASK_STATE_READY) {
-        scheduler_add_ready_task(task);
-    }
 
     /* If this is the current task and priority decreased, yield */
     if (task == kernel.current_task && new_priority > old_priority) {
@@ -496,16 +498,8 @@ os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority) {
     uint32_t state = os_enter_critical();
 
     /* Remove from ready queue before changing priority to ensure correct queue is searched */
-    if (task->state == TASK_STATE_READY) {
-        scheduler_remove_task(task);
-    }
-
-    task->priority = new_priority;
+    scheduler_reprioritize(task, new_priority);
     /* Note: base_priority remains unchanged */
-
-    if (task->state == TASK_STATE_READY) {
-        scheduler_add_ready_task(task);
-    }
 
     /* If a higher priority task is now ready, trigger scheduler */
     if (kernel.current_task != NULL && new_priority < kernel.current_task->priority) {
@@ -532,16 +526,7 @@ os_error_t os_task_reset_priority(tcb_t *task) {
     /* Reset to base priority */
     task_priority_t old_priority = task->priority;
 
-    /* Remove from ready queue before changing priority to ensure correct queue is searched */
-    if (task->state == TASK_STATE_READY) {
-        scheduler_remove_task(task);
-    }
-
-    task->priority = task->base_priority;
-
-    if (task->state == TASK_STATE_READY) {
-        scheduler_add_ready_task(task);
-    }
+    scheduler_reprioritize(task, task->base_priority);
 
     /* If this is current task and priority decreased, yield */
     if (task == kernel.current_task && task->priority > old_priority) {
@@ -557,6 +542,15 @@ os_error_t os_task_reset_priority(tcb_t *task) {
 /**
  * Statistics API Implementation
  */
+
+/**
+ * Convert a tick count to a percentage of total system ticks (CPU usage)
+ */
+static inline float ticks_to_percent(uint32_t ticks) {
+    return kernel.tick_count > 0
+           ? ((float)ticks / (float)kernel.tick_count) * 100.0f
+           : 0.0f;
+}
 
 /**
  * Calculate stack usage for a task
@@ -613,11 +607,7 @@ os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats) {
     }
 
     /* Calculate CPU usage percentage */
-    if (kernel.tick_count > 0) {
-        stats->cpu_usage = ((float)task->run_time / (float)kernel.tick_count) * 100.0f;
-    } else {
-        stats->cpu_usage = 0.0f;
-    }
+    stats->cpu_usage = ticks_to_percent(task->run_time);
 
     os_exit_critical(state);
     return OS_OK;
@@ -656,12 +646,7 @@ os_error_t os_get_system_stats(system_stats_t *stats) {
     }
 
     /* Calculate overall CPU usage */
-    if (kernel.tick_count > 0) {
-        float idle_percentage = ((float)stats->idle_time / (float)kernel.tick_count) * 100.0f;
-        stats->cpu_usage = 100.0f - idle_percentage;
-    } else {
-        stats->cpu_usage = 0.0f;
-    }
+    stats->cpu_usage = 100.0f - ticks_to_percent(stats->idle_time);
 
     stats->free_heap = os_get_free_memory();
 
