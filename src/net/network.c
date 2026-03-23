@@ -268,10 +268,7 @@ void net_format_ipv4(ipv4_addr_t ip, char *str) {
 }
 
 bool net_ipv4_equal(ipv4_addr_t a, ipv4_addr_t b) {
-    return (a.addr[0] == b.addr[0] &&
-            a.addr[1] == b.addr[1] &&
-            a.addr[2] == b.addr[2] &&
-            a.addr[3] == b.addr[3]);
+    return memcmp(a.addr, b.addr, 4) == 0;
 }
 
 uint16_t net_checksum(const void *data, uint16_t length) {

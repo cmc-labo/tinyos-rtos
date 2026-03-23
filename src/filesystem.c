@@ -97,6 +97,16 @@ static os_error_t fs_free_inode(uint32_t inode);
 static os_error_t fs_read_inode(uint32_t inode, fs_inode_t *inode_data);
 static os_error_t fs_write_inode(uint32_t inode, const fs_inode_t *inode_data);
 
+static inline bool fd_valid(fs_file_t fd) {
+    return fd >= 0 && fd < FS_MAX_OPEN_FILES && fs_state.files[fd].in_use;
+}
+
+static inline void fs_inode_location(uint32_t inode_num, uint32_t *block, uint32_t *offset) {
+    uint32_t inodes_per_block = FS_BLOCK_SIZE / sizeof(fs_inode_t);
+    *block  = fs_state.superblock.inode_table_block + inode_num / inodes_per_block;
+    *offset = (inode_num % inodes_per_block) * sizeof(fs_inode_t);
+}
+
 /**
  * Initialize file system
  */
@@ -413,9 +423,8 @@ static os_error_t fs_read_inode(uint32_t inode_num, fs_inode_t *inode_data) {
         return OS_ERROR_INVALID_PARAM;
     }
 
-    uint32_t inodes_per_block = FS_BLOCK_SIZE / sizeof(fs_inode_t);
-    uint32_t block = fs_state.superblock.inode_table_block + inode_num / inodes_per_block;
-    uint32_t offset = (inode_num % inodes_per_block) * sizeof(fs_inode_t);
+    uint32_t block, offset;
+    fs_inode_location(inode_num, &block, &offset);
 
     uint8_t buffer[FS_BLOCK_SIZE];
     if (fs_read_block(block, buffer) != OS_OK) {
@@ -434,9 +443,8 @@ static os_error_t fs_write_inode(uint32_t inode_num, const fs_inode_t *inode_dat
         return OS_ERROR_INVALID_PARAM;
     }
 
-    uint32_t inodes_per_block = FS_BLOCK_SIZE / sizeof(fs_inode_t);
-    uint32_t block = fs_state.superblock.inode_table_block + inode_num / inodes_per_block;
-    uint32_t offset = (inode_num % inodes_per_block) * sizeof(fs_inode_t);
+    uint32_t block, offset;
+    fs_inode_location(inode_num, &block, &offset);
 
     uint8_t buffer[FS_BLOCK_SIZE];
     if (fs_read_block(block, buffer) != OS_OK) {
@@ -597,7 +605,7 @@ fs_file_t fs_open(const char *path, uint32_t flags) {
  * Close file
  */
 os_error_t fs_close(fs_file_t fd) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return OS_ERROR_INVALID_PARAM;
     }
 
@@ -614,7 +622,7 @@ os_error_t fs_close(fs_file_t fd) {
  * Read from file
  */
 int32_t fs_read(fs_file_t fd, void *buffer, size_t size) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return -1;
     }
 
@@ -664,7 +672,7 @@ int32_t fs_read(fs_file_t fd, void *buffer, size_t size) {
  * Write to file
  */
 int32_t fs_write(fs_file_t fd, const void *buffer, size_t size) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return -1;
     }
 
@@ -731,7 +739,7 @@ int32_t fs_write(fs_file_t fd, const void *buffer, size_t size) {
  * Seek to position
  */
 int32_t fs_seek(fs_file_t fd, int32_t offset, int whence) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return -1;
     }
 
@@ -768,7 +776,7 @@ int32_t fs_seek(fs_file_t fd, int32_t offset, int whence) {
  * Get current position
  */
 int32_t fs_tell(fs_file_t fd) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return -1;
     }
 
@@ -779,7 +787,7 @@ int32_t fs_tell(fs_file_t fd) {
  * Get file size
  */
 int32_t fs_size(fs_file_t fd) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return -1;
     }
 
@@ -790,7 +798,7 @@ int32_t fs_size(fs_file_t fd) {
  * Sync file data to storage
  */
 os_error_t fs_sync(fs_file_t fd) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return OS_ERROR_INVALID_PARAM;
     }
 
@@ -928,7 +936,7 @@ uint32_t fs_get_total_space(void) {
  * Truncate file
  */
 os_error_t fs_truncate(fs_file_t fd, uint32_t size) {
-    if (fd < 0 || fd >= FS_MAX_OPEN_FILES || !fs_state.files[fd].in_use) {
+    if (!fd_valid(fd)) {
         return OS_ERROR_INVALID_PARAM;
     }
 
