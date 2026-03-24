@@ -8,6 +8,10 @@
 #include <string.h>
 #include <stdio.h>
 
+/* Apply default value if field is zero */
+#define SET_DEFAULT(field, default_val) \
+    do { if ((field) == 0) (field) = (default_val); } while (0)
+
 /* Internal helper functions */
 static uint16_t mqtt_encode_remaining_length(uint8_t *buffer, uint32_t length);
 static uint32_t mqtt_decode_remaining_length(const uint8_t *buffer, uint16_t *bytes_used);
@@ -497,15 +501,9 @@ mqtt_error_t mqtt_client_init(mqtt_client_t *client, const mqtt_config_t *config
     memcpy(&client->config, config, sizeof(mqtt_config_t));
 
     /* Set defaults */
-    if (client->config.broker_port == 0) {
-        client->config.broker_port = MQTT_DEFAULT_PORT;
-    }
-    if (client->config.keepalive_sec == 0) {
-        client->config.keepalive_sec = MQTT_DEFAULT_KEEPALIVE;
-    }
-    if (client->config.timeout_ms == 0) {
-        client->config.timeout_ms = MQTT_DEFAULT_TIMEOUT_MS;
-    }
+    SET_DEFAULT(client->config.broker_port,   MQTT_DEFAULT_PORT);
+    SET_DEFAULT(client->config.keepalive_sec, MQTT_DEFAULT_KEEPALIVE);
+    SET_DEFAULT(client->config.timeout_ms,    MQTT_DEFAULT_TIMEOUT_MS);
 
     client->state = MQTT_STATE_DISCONNECTED;
     client->next_message_id = 1;
@@ -529,22 +527,21 @@ mqtt_error_t mqtt_connect(mqtt_client_t *client) {
 
     client->state = MQTT_STATE_CONNECTING;
 
+    mqtt_error_t ret;
+
     /* Create TCP connection */
     client->socket = net_socket(SOCK_STREAM);
     if (client->socket < 0) {
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return MQTT_ERROR_NETWORK;
+        ret = MQTT_ERROR_NETWORK;
+        goto fail_no_socket;
     }
 
     /* Resolve hostname and connect */
     ipv4_addr_t broker_ip;
     os_error_t err = net_dns_resolve(client->config.broker_host, &broker_ip, client->config.timeout_ms);
     if (err != OS_OK) {
-        net_close(client->socket);
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return MQTT_ERROR_NETWORK;
+        ret = MQTT_ERROR_NETWORK;
+        goto fail;
     }
 
     sockaddr_in_t broker_addr = {
@@ -554,37 +551,29 @@ mqtt_error_t mqtt_connect(mqtt_client_t *client) {
 
     err = net_connect(client->socket, &broker_addr, client->config.timeout_ms);
     if (err != OS_OK) {
-        net_close(client->socket);
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return MQTT_ERROR_NETWORK;
+        ret = MQTT_ERROR_NETWORK;
+        goto fail;
     }
 
     /* Send CONNECT packet */
     mqtt_error_t mqtt_err = mqtt_send_connect(client);
     if (mqtt_err != MQTT_OK) {
-        net_close(client->socket);
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return mqtt_err;
+        ret = mqtt_err;
+        goto fail;
     }
 
     /* Wait for CONNACK */
     uint8_t msg_type;
     mqtt_err = mqtt_receive_packet(client, &msg_type, client->config.timeout_ms);
     if (mqtt_err != MQTT_OK || msg_type != MQTT_MSG_TYPE_CONNACK) {
-        net_close(client->socket);
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return (mqtt_err != MQTT_OK) ? mqtt_err : MQTT_ERROR_PROTOCOL;
+        ret = (mqtt_err != MQTT_OK) ? mqtt_err : MQTT_ERROR_PROTOCOL;
+        goto fail;
     }
 
     mqtt_err = mqtt_handle_connack(client);
     if (mqtt_err != MQTT_OK) {
-        net_close(client->socket);
-        client->state = MQTT_STATE_DISCONNECTED;
-        os_mutex_unlock(&client->mutex);
-        return mqtt_err;
+        ret = mqtt_err;
+        goto fail;
     }
 
     /* Start background task */
@@ -596,6 +585,13 @@ mqtt_error_t mqtt_connect(mqtt_client_t *client) {
 
     os_mutex_unlock(&client->mutex);
     return MQTT_OK;
+
+fail:
+    net_close(client->socket);
+fail_no_socket:
+    client->state = MQTT_STATE_DISCONNECTED;
+    os_mutex_unlock(&client->mutex);
+    return ret;
 }
 
 mqtt_error_t mqtt_disconnect(mqtt_client_t *client) {
