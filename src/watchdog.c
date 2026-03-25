@@ -75,6 +75,22 @@ static uint32_t wdt_calc_time_remaining(void) {
            (g_wdt_state.config.timeout_ms - elapsed) : 0;
 }
 
+static inline bool wdt_uses_hardware(void) {
+    return g_wdt_state.config.type == WDT_TYPE_HARDWARE ||
+           g_wdt_state.config.type == WDT_TYPE_BOTH;
+}
+
+static inline bool wdt_uses_software(void) {
+    return g_wdt_state.config.type == WDT_TYPE_SOFTWARE ||
+           g_wdt_state.config.type == WDT_TYPE_BOTH;
+}
+
+static wdt_error_t wdt_validate_timeout(uint32_t timeout_ms) {
+    if (timeout_ms < WDT_MIN_TIMEOUT_MS) return WDT_ERROR_TIMEOUT_TOO_SHORT;
+    if (timeout_ms > WDT_MAX_TIMEOUT_MS) return WDT_ERROR_TIMEOUT_TOO_LONG;
+    return WDT_OK;
+}
+
 static wdt_task_entry_t *find_task_entry(tcb_t *task) {
     for (uint32_t i = 0; i < g_wdt_state.num_registered_tasks; i++) {
         if (g_wdt_state.task_entries[i].task == task) {
@@ -136,13 +152,8 @@ wdt_error_t wdt_init(const wdt_config_t *config) {
         return WDT_ERROR_INVALID_PARAM;
     }
 
-    if (config->timeout_ms < WDT_MIN_TIMEOUT_MS) {
-        return WDT_ERROR_TIMEOUT_TOO_SHORT;
-    }
-
-    if (config->timeout_ms > WDT_MAX_TIMEOUT_MS) {
-        return WDT_ERROR_TIMEOUT_TOO_LONG;
-    }
+    wdt_error_t verr = wdt_validate_timeout(config->timeout_ms);
+    if (verr != WDT_OK) return verr;
 
     /* Initialize state */
     memset(&g_wdt_state, 0, sizeof(g_wdt_state));
@@ -198,8 +209,7 @@ wdt_error_t wdt_start(void) {
     g_wdt_state.last_feed_time = os_get_tick_count();
 
     /* Enable hardware watchdog */
-    if (g_wdt_state.config.type == WDT_TYPE_HARDWARE ||
-        g_wdt_state.config.type == WDT_TYPE_BOTH) {
+    if (wdt_uses_hardware()) {
         hal_wdt_enable();
     }
 
@@ -214,8 +224,7 @@ wdt_error_t wdt_stop(void) {
     g_wdt_state.enabled = false;
 
     /* Disable hardware watchdog (if possible) */
-    if (g_wdt_state.config.type == WDT_TYPE_HARDWARE ||
-        g_wdt_state.config.type == WDT_TYPE_BOTH) {
+    if (wdt_uses_hardware()) {
         hal_wdt_disable();
     }
 
@@ -235,14 +244,12 @@ wdt_error_t wdt_feed(void) {
     g_wdt_state.stats.total_feeds++;
 
     /* Feed hardware watchdog */
-    if (g_wdt_state.config.type == WDT_TYPE_HARDWARE ||
-        g_wdt_state.config.type == WDT_TYPE_BOTH) {
+    if (wdt_uses_hardware()) {
         hal_wdt_feed();
     }
 
     /* Check software watchdog for tasks */
-    if (g_wdt_state.config.type == WDT_TYPE_SOFTWARE ||
-        g_wdt_state.config.type == WDT_TYPE_BOTH) {
+    if (wdt_uses_software()) {
         wdt_check_tasks();
     }
 
@@ -254,19 +261,13 @@ wdt_error_t wdt_set_timeout(uint32_t timeout_ms) {
         return WDT_ERROR_NOT_INITIALIZED;
     }
 
-    if (timeout_ms < WDT_MIN_TIMEOUT_MS) {
-        return WDT_ERROR_TIMEOUT_TOO_SHORT;
-    }
-
-    if (timeout_ms > WDT_MAX_TIMEOUT_MS) {
-        return WDT_ERROR_TIMEOUT_TOO_LONG;
-    }
+    wdt_error_t verr = wdt_validate_timeout(timeout_ms);
+    if (verr != WDT_OK) return verr;
 
     g_wdt_state.config.timeout_ms = timeout_ms;
 
     /* Reinitialize hardware watchdog with new timeout */
-    if (g_wdt_state.config.type == WDT_TYPE_HARDWARE ||
-        g_wdt_state.config.type == WDT_TYPE_BOTH) {
+    if (wdt_uses_hardware()) {
         hal_wdt_init(timeout_ms);
     }
 
