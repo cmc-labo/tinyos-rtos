@@ -356,23 +356,18 @@ ota_error_t ota_start_update_from_buffer(const uint8_t *firmware_data, uint32_t 
     ota_state.callback = callback;
     ota_state.callback_user_data = user_data;
 
+    ota_error_t err;
+
     /* Parse and verify header */
     if (size < sizeof(ota_image_header_t)) {
-        ota_state.progress.state = OTA_STATE_FAILED;
-        ota_state.progress.last_error = OTA_ERROR_INVALID_IMAGE;
-        report_progress();
-        return OTA_ERROR_INVALID_IMAGE;
+        err = OTA_ERROR_INVALID_IMAGE;
+        goto fail;
     }
 
     memcpy(&ota_state.current_header, firmware_data, sizeof(ota_image_header_t));
 
-    ota_error_t err = ota_verify_image_header(&ota_state.current_header);
-    if (err != OTA_OK) {
-        ota_state.progress.state = OTA_STATE_FAILED;
-        ota_state.progress.last_error = err;
-        report_progress();
-        return err;
-    }
+    err = ota_verify_image_header(&ota_state.current_header);
+    if (err != OTA_OK) goto fail;
 
     /* Update progress */
     ota_state.progress.state = OTA_STATE_WRITING;
@@ -384,21 +379,15 @@ ota_error_t ota_start_update_from_buffer(const uint8_t *firmware_data, uint32_t 
     ota_partition_info_t partition_info;
     ota_get_partition_info(ota_state.update_partition, &partition_info);
 
-    flash_error_t flash_err = flash_erase_range(partition_info.start_address, partition_info.size);
-    if (flash_err != FLASH_OK) {
-        ota_state.progress.state = OTA_STATE_FAILED;
-        ota_state.progress.last_error = OTA_ERROR_FLASH_ERROR;
-        report_progress();
-        return OTA_ERROR_FLASH_ERROR;
+    if (flash_erase_range(partition_info.start_address, partition_info.size) != FLASH_OK) {
+        err = OTA_ERROR_FLASH_ERROR;
+        goto fail;
     }
 
     /* Write firmware to flash */
-    flash_err = flash_write(partition_info.start_address, firmware_data, size);
-    if (flash_err != FLASH_OK) {
-        ota_state.progress.state = OTA_STATE_FAILED;
-        ota_state.progress.last_error = OTA_ERROR_FLASH_ERROR;
-        report_progress();
-        return OTA_ERROR_FLASH_ERROR;
+    if (flash_write(partition_info.start_address, firmware_data, size) != FLASH_OK) {
+        err = OTA_ERROR_FLASH_ERROR;
+        goto fail;
     }
 
     ota_state.progress.written_bytes = size;
@@ -409,12 +398,7 @@ ota_error_t ota_start_update_from_buffer(const uint8_t *firmware_data, uint32_t 
     report_progress();
 
     err = ota_verify_partition(ota_state.update_partition);
-    if (err != OTA_OK) {
-        ota_state.progress.state = OTA_STATE_FAILED;
-        ota_state.progress.last_error = err;
-        report_progress();
-        return err;
-    }
+    if (err != OTA_OK) goto fail;
 
     /* Mark update partition as pending */
     ota_state.boot_info.pending_partition = ota_state.update_partition;
@@ -426,6 +410,12 @@ ota_error_t ota_start_update_from_buffer(const uint8_t *firmware_data, uint32_t 
     report_progress();
 
     return OTA_OK;
+
+fail:
+    ota_state.progress.state = OTA_STATE_FAILED;
+    ota_state.progress.last_error = err;
+    report_progress();
+    return err;
 }
 
 ota_error_t ota_write_chunk(const uint8_t *data, uint32_t size, uint32_t offset) {

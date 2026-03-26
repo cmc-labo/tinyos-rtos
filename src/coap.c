@@ -53,6 +53,20 @@ static uint16_t coap_encode_option_delta_length(uint8_t *buffer, uint16_t value)
     }
 }
 
+static bool coap_write_ext_field(uint8_t **ptr, size_t *remaining, uint8_t nibble, const uint8_t *ext) {
+    if (nibble == 13) {
+        if (*remaining < 1) return false;
+        *(*ptr)++ = ext[0];
+        (*remaining)--;
+    } else if (nibble == 14) {
+        if (*remaining < 2) return false;
+        *(*ptr)++ = ext[0];
+        *(*ptr)++ = ext[1];
+        *remaining -= 2;
+    }
+    return true;
+}
+
 static uint16_t coap_decode_option_delta_length(const uint8_t **buffer, uint16_t encoded) {
     if (encoded < 13) {
         return encoded;
@@ -179,29 +193,9 @@ int coap_pdu_encode(const coap_pdu_t *pdu, uint8_t *buffer, size_t buffer_size) 
         *ptr++ = (delta_nibble << 4) | length_nibble;
         remaining--;
 
-        /* Extended delta */
-        if (delta_nibble == 13) {
-            if (remaining < 1) return -1;
-            *ptr++ = delta_ext[0];
-            remaining--;
-        } else if (delta_nibble == 14) {
-            if (remaining < 2) return -1;
-            *ptr++ = delta_ext[0];
-            *ptr++ = delta_ext[1];
-            remaining -= 2;
-        }
-
-        /* Extended length */
-        if (length_nibble == 13) {
-            if (remaining < 1) return -1;
-            *ptr++ = length_ext[0];
-            remaining--;
-        } else if (length_nibble == 14) {
-            if (remaining < 2) return -1;
-            *ptr++ = length_ext[0];
-            *ptr++ = length_ext[1];
-            remaining -= 2;
-        }
+        /* Extended delta and length */
+        if (!coap_write_ext_field(&ptr, &remaining, delta_nibble, delta_ext)) return -1;
+        if (!coap_write_ext_field(&ptr, &remaining, length_nibble, length_ext)) return -1;
 
         /* Option value */
         if (opt->length > 0) {
