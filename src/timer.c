@@ -126,19 +126,12 @@ os_error_t os_timer_stop(timer_t *timer) {
     }
 
     /* Remove timer from active list */
-    if (timer_manager.active_timers == timer) {
-        /* Timer is at head */
-        timer_manager.active_timers = timer->next;
-    } else {
-        /* Find and remove timer */
-        timer_t *current = timer_manager.active_timers;
-        while (current != NULL && current->next != timer) {
-            current = current->next;
-        }
-
-        if (current != NULL) {
-            current->next = timer->next;
-        }
+    timer_t **pp = &timer_manager.active_timers;
+    while (*pp != NULL && *pp != timer) {
+        pp = &(*pp)->next;
+    }
+    if (*pp == timer) {
+        *pp = timer->next;
     }
 
     timer->active = false;

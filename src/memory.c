@@ -89,10 +89,11 @@ void *os_malloc(size_t size) {
                 block->size = total_size;
 
                 /* Remove from free list */
+                memory_block_t *next_free = (memory_block_t *)((uint8_t *)block + total_size);
                 if (prev == NULL) {
-                    mem.free_list = (memory_block_t *)((uint8_t *)block + total_size);
+                    mem.free_list = next_free;
                 } else {
-                    prev->next = (memory_block_t *)((uint8_t *)block + total_size);
+                    prev->next = next_free;
                 }
 
                 mem.free_bytes -= total_size;
