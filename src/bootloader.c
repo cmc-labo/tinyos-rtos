@@ -21,6 +21,15 @@
 #define MAX_BOOT_ATTEMPTS       3
 #define WATCHDOG_TIMEOUT_MS     30000
 
+#define BOOTLOADER_VERSION_FIELDS \
+    ((BOOTLOADER_VERSION >> 16) & 0xFF), \
+    ((BOOTLOADER_VERSION >> 8)  & 0xFF), \
+    ((BOOTLOADER_VERSION)       & 0xFF)
+
+static inline const char *partition_name(ota_partition_type_t p) {
+    return p == OTA_PARTITION_APP_A ? "APP_A" : "APP_B";
+}
+
 /* ============================================================================
  * Boot Information (stored in Data Partition)
  * ============================================================================ */
@@ -181,10 +190,7 @@ void bootloader_main(void) {
 
     printf("\n");
     printf("========================================\n");
-    printf("  TinyOS Bootloader v%d.%d.%d\n",
-           (BOOTLOADER_VERSION >> 16) & 0xFF,
-           (BOOTLOADER_VERSION >> 8) & 0xFF,
-           BOOTLOADER_VERSION & 0xFF);
+    printf("  TinyOS Bootloader v%d.%d.%d\n", BOOTLOADER_VERSION_FIELDS);
     printf("========================================\n\n");
 
     /* Initialize flash */
@@ -287,8 +293,7 @@ void bootloader_main(void) {
     app_address = partition_info.start_address;
 
     printf("Bootloader: Booting from partition %s (0x%08lX)\n",
-           boot_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B",
-           (unsigned long)app_address);
+           partition_name(boot_partition), (unsigned long)app_address);
     printf("Bootloader: Boot count: %lu\n", (unsigned long)boot_info.boot_count);
 
     if (!boot_info.boot_confirmed) {
@@ -320,16 +325,11 @@ void bootloader_print_info(void) {
     bootloader_boot_info_t boot_info;
 
     printf("\n=== Bootloader Information ===\n");
-    printf("Version: %d.%d.%d\n",
-           (BOOTLOADER_VERSION >> 16) & 0xFF,
-           (BOOTLOADER_VERSION >> 8) & 0xFF,
-           BOOTLOADER_VERSION & 0xFF);
+    printf("Version: %d.%d.%d\n", BOOTLOADER_VERSION_FIELDS);
 
     if (bootloader_read_boot_info(&boot_info)) {
-        printf("Active Partition: %s\n",
-               boot_info.active_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B");
-        printf("Pending Partition: %s\n",
-               boot_info.pending_partition == OTA_PARTITION_APP_A ? "APP_A" : "APP_B");
+        printf("Active Partition: %s\n",  partition_name(boot_info.active_partition));
+        printf("Pending Partition: %s\n", partition_name(boot_info.pending_partition));
         printf("Boot Count: %lu\n", (unsigned long)boot_info.boot_count);
         printf("Rollback Count: %lu\n", (unsigned long)boot_info.rollback_count);
         printf("Boot Confirmed: %s\n", boot_info.boot_confirmed ? "Yes" : "No");

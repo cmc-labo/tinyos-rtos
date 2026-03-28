@@ -93,31 +93,21 @@ os_error_t os_mpu_set_region(
     return OS_OK;
 }
 
+static void mpu_configure_region(uint8_t id, void *addr, uint32_t size, uint32_t perms) {
+    memory_region_t r;
+    r.start_addr  = addr;
+    r.size        = size;
+    r.permissions = perms;
+    os_mpu_set_region(id, &r);
+}
+
 /**
  * Configure default memory regions
  */
 void os_mpu_configure_default(void) {
-    memory_region_t region;
-
-    /* Region 0: Flash (read-only, executable) */
-    region.start_addr = (void *)0x00000000;
-    region.size = 256 * 1024;  /* 256KB */
-    region.permissions = PERM_READ | PERM_EXEC;
-    os_mpu_set_region(0, &region);
-
-    /* Region 1: SRAM (read-write) */
-    region.start_addr = (void *)0x20000000;
-    region.size = 64 * 1024;  /* 64KB */
-    region.permissions = PERM_READ | PERM_WRITE;
-    os_mpu_set_region(1, &region);
-
-    /* Region 2: Peripheral (read-write) */
-    region.start_addr = (void *)0x40000000;
-    region.size = 512 * 1024 * 1024;  /* 512MB */
-    region.permissions = PERM_READ | PERM_WRITE;
-    os_mpu_set_region(2, &region);
-
-    /* Enable MPU */
+    mpu_configure_region(0, (void *)0x00000000, 256 * 1024,        PERM_READ | PERM_EXEC);
+    mpu_configure_region(1, (void *)0x20000000, 64 * 1024,         PERM_READ | PERM_WRITE);
+    mpu_configure_region(2, (void *)0x40000000, 512 * 1024 * 1024, PERM_READ | PERM_WRITE);
     os_mpu_enable(true);
 }
 
