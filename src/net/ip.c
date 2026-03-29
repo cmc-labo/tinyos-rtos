@@ -219,16 +219,13 @@ os_error_t net_ping(ipv4_addr_t dest_ip, uint32_t timeout_ms, uint32_t *rtt) {
     /* Wait for reply */
     err = os_semaphore_wait(&ping_sem, timeout_ms);
 
+    os_error_t result = OS_ERR_TIMEOUT;
     if (err == OS_OK && ping_reply_received) {
-        if (rtt) {
-            *rtt = ping_reply_time - start_time;
-        }
-        os_mutex_unlock(&ping_mutex);
-        return OS_OK;
+        if (rtt) *rtt = ping_reply_time - start_time;
+        result = OS_OK;
     }
-
     os_mutex_unlock(&ping_mutex);
-    return OS_ERR_TIMEOUT;
+    return result;
 }
 
 /*===========================================================================

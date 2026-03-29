@@ -69,6 +69,19 @@ static inline bool sock_valid(net_socket_t sock) {
     return sock >= 0 && sock < NET_MAX_SOCKETS && sockets[sock].in_use;
 }
 
+static void tcp_fill_header(tcp_header_t *tcp, uint16_t src_port, uint16_t dest_port,
+                             uint32_t seq_num, uint32_t ack_num, uint8_t flags) {
+    tcp->src_port          = htons(src_port);
+    tcp->dest_port         = htons(dest_port);
+    tcp->seq_num           = htonl(seq_num);
+    tcp->ack_num           = htonl(ack_num);
+    tcp->data_offset_flags = 0x50;  /* 5 * 4 = 20 bytes header */
+    tcp->flags             = flags;
+    tcp->window            = htons(1024);
+    tcp->checksum          = 0;
+    tcp->urgent_ptr        = 0;
+}
+
 /*===========================================================================
  * Initialization
  *===========================================================================*/
@@ -306,15 +319,10 @@ os_error_t net_connect(net_socket_t sock, const sockaddr_in_t *addr, uint32_t ti
     uint8_t packet[sizeof(tcp_header_t)];
     tcp_header_t *tcp = (tcp_header_t *)packet;
 
-    tcp->src_port = htons(sockets[sock].local_addr.port);
-    tcp->dest_port = htons(addr->port);
-    tcp->seq_num = htonl(sockets[sock].seq_num);
-    tcp->ack_num = 0;
-    tcp->data_offset_flags = 0x50;  /* 5 * 4 = 20 bytes header */
-    tcp->flags = TCP_FLAG_SYN;
-    tcp->window = htons(1024);
-    tcp->checksum = 0;
-    tcp->urgent_ptr = 0;
+    tcp_fill_header(tcp,
+        sockets[sock].local_addr.port, addr->port,
+        sockets[sock].seq_num, 0,
+        TCP_FLAG_SYN);
 
     sockets[sock].state = TCP_SYN_SENT;
 
@@ -347,15 +355,10 @@ int32_t net_send(net_socket_t sock, const void *data, uint16_t length, uint32_t 
         uint8_t packet[sizeof(tcp_header_t) + length];
         tcp_header_t *tcp = (tcp_header_t *)packet;
 
-        tcp->src_port = htons(sockets[sock].local_addr.port);
-        tcp->dest_port = htons(sockets[sock].remote_addr.port);
-        tcp->seq_num = htonl(sockets[sock].seq_num);
-        tcp->ack_num = htonl(sockets[sock].ack_num);
-        tcp->data_offset_flags = 0x50;
-        tcp->flags = TCP_FLAG_PSH | TCP_FLAG_ACK;
-        tcp->window = htons(1024);
-        tcp->checksum = 0;
-        tcp->urgent_ptr = 0;
+        tcp_fill_header(tcp,
+            sockets[sock].local_addr.port, sockets[sock].remote_addr.port,
+            sockets[sock].seq_num, sockets[sock].ack_num,
+            TCP_FLAG_PSH | TCP_FLAG_ACK);
 
         memcpy(packet + sizeof(tcp_header_t), data, length);
 
