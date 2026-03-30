@@ -26,8 +26,41 @@ DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
 
-ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC)
+ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC) \
+            $(if $(MBEDTLS_DIR),$(MBEDTLS_SRCS),)
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
+
+# mbedTLS configuration (set MBEDTLS_DIR to your mbedTLS source tree)
+MBEDTLS_DIR ?= $(HOME)/mbedtls
+MBEDTLS_INC := $(MBEDTLS_DIR)/include
+MBEDTLS_LIB := $(MBEDTLS_DIR)/library
+MBEDTLS_SRCS := $(wildcard $(MBEDTLS_LIB)/aes.c \
+                             $(MBEDTLS_LIB)/bignum.c \
+                             $(MBEDTLS_LIB)/ctr_drbg.c \
+                             $(MBEDTLS_LIB)/entropy.c \
+                             $(MBEDTLS_LIB)/entropy_poll.c \
+                             $(MBEDTLS_LIB)/error.c \
+                             $(MBEDTLS_LIB)/gcm.c \
+                             $(MBEDTLS_LIB)/hmac_drbg.c \
+                             $(MBEDTLS_LIB)/md.c \
+                             $(MBEDTLS_LIB)/oid.c \
+                             $(MBEDTLS_LIB)/pem.c \
+                             $(MBEDTLS_LIB)/pk.c \
+                             $(MBEDTLS_LIB)/pk_wrap.c \
+                             $(MBEDTLS_LIB)/pkparse.c \
+                             $(MBEDTLS_LIB)/rsa.c \
+                             $(MBEDTLS_LIB)/rsa_alt_helpers.c \
+                             $(MBEDTLS_LIB)/sha256.c \
+                             $(MBEDTLS_LIB)/ssl_ciphersuites.c \
+                             $(MBEDTLS_LIB)/ssl_client.c \
+                             $(MBEDTLS_LIB)/ssl_cookie.c \
+                             $(MBEDTLS_LIB)/ssl_msg.c \
+                             $(MBEDTLS_LIB)/ssl_tls.c \
+                             $(MBEDTLS_LIB)/ssl_tls12_client.c \
+                             $(MBEDTLS_LIB)/ssl_tls12_server.c \
+                             $(MBEDTLS_LIB)/timing.c \
+                             $(MBEDTLS_LIB)/x509.c \
+                             $(MBEDTLS_LIB)/x509_crt.c)
 
 # Compiler flags
 CFLAGS := -Wall -Wextra -Werror
@@ -37,6 +70,8 @@ CFLAGS += -O2 -g
 CFLAGS += -ffunction-sections -fdata-sections
 CFLAGS += -I$(INC_DIR)
 CFLAGS += -DTINYOS_VERSION=\"1.0.0\"
+# TLS support (add -DTINYOS_TLS_ENABLE to enable TLS; requires MBEDTLS_DIR)
+CFLAGS += $(if $(MBEDTLS_DIR),-DTINYOS_TLS_ENABLE -I$(MBEDTLS_INC),)
 
 # Linker flags
 LDFLAGS := -mcpu=$(ARCH) -mthumb
@@ -140,6 +175,9 @@ example-stats:
 
 example-watchdog:
 	$(MAKE) EXAMPLE=watchdog_demo
+
+example-tls:
+	$(MAKE) EXAMPLE=tls_demo
 
 # Help
 help:
