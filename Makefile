@@ -179,6 +179,9 @@ example-watchdog:
 example-tls:
 	$(MAKE) EXAMPLE=tls_demo
 
+example-shell:
+	$(MAKE) EXAMPLE=shell_demo
+
 # Help
 help:
 	@echo "TinyOS Build System"
