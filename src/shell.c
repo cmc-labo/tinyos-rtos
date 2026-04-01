@@ -55,11 +55,11 @@ static int cmd_help(int argc, char *argv[]) {
 static const char *task_state_str(task_state_t s) {
     switch (s) {
         case TASK_STATE_READY:      return "READY";
-        case TASK_STATE_RUNNING:    return "RUN  ";
+        case TASK_STATE_RUNNING:    return "RUN";
         case TASK_STATE_BLOCKED:    return "BLOCK";
-        case TASK_STATE_SUSPENDED:  return "SUSP ";
-        case TASK_STATE_TERMINATED: return "TERM ";
-        default:                    return "?    ";
+        case TASK_STATE_SUSPENDED:  return "SUSP";
+        case TASK_STATE_TERMINATED: return "TERM";
+        default:                    return "?";
     }
 }
 
@@ -75,7 +75,7 @@ static int cmd_ps(int argc, char *argv[]) {
         task_stats_t ts;
         /* os_task_get_stats_by_index is a convenience shim over the TCB list */
         if (os_task_get_stats_by_index(i, &ts) != OS_OK) continue;
-        shell_printf("%-16s %s   %3u  %5.1f%%  %4lu/%4u\r\n",
+        shell_printf("%-16s %-5s   %3u  %5.1f%%  %4lu/%4u\r\n",
                      ts.name,
                      task_state_str(ts.state),
                      ts.priority,
@@ -121,6 +121,12 @@ static int cmd_ver(int argc, char *argv[]) {
  * Built-in: net
  *===========================================================================*/
 
+static void shell_print_ip(const char *label, ipv4_addr_t ip) {
+    char buf[16];
+    net_format_ipv4(ip, buf);
+    shell_printf("%-9s: %s\r\n", label, buf);
+}
+
 static int cmd_net(int argc, char *argv[]) {
     (void)argc; (void)argv;
     net_stats_t s;
@@ -128,12 +134,8 @@ static int cmd_net(int argc, char *argv[]) {
     net_config_t cfg;
     net_get_config(&cfg);
 
-    char ip_str[16];
-    net_format_ipv4(cfg.ip, ip_str);
-    shell_printf("IP      : %s\r\n", ip_str);
-
-    net_format_ipv4(cfg.gateway, ip_str);
-    shell_printf("Gateway : %s\r\n", ip_str);
+    shell_print_ip("IP",      cfg.ip);
+    shell_print_ip("Gateway", cfg.gateway);
 
     shell_println("--- Ethernet ---");
     shell_printf("  RX: %lu pkts  TX: %lu pkts  Err: %lu\r\n",
@@ -282,12 +284,17 @@ shell_error_t shell_start(const shell_io_t *cfg) {
     io = *cfg;
 
     /* Register built-ins */
-    shell_register_cmd("help",   cmd_help,   "List all commands");
-    shell_register_cmd("ps",     cmd_ps,     "Show task list");
-    shell_register_cmd("mem",    cmd_mem,    "Show memory usage");
-    shell_register_cmd("ver",    cmd_ver,    "Show version and uptime");
-    shell_register_cmd("net",    cmd_net,    "Show network statistics");
-    shell_register_cmd("reboot", cmd_reboot, "Reboot the system");
+    static const shell_cmd_t builtins[] = {
+        { "help",   cmd_help,   "List all commands"      },
+        { "ps",     cmd_ps,     "Show task list"          },
+        { "mem",    cmd_mem,    "Show memory usage"       },
+        { "ver",    cmd_ver,    "Show version and uptime" },
+        { "net",    cmd_net,    "Show network statistics" },
+        { "reboot", cmd_reboot, "Reboot the system"       },
+    };
+    for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+        shell_register_cmd(builtins[i].name, builtins[i].fn, builtins[i].help);
+    }
 
     return os_task_create(&shell_task, "shell", shell_task_fn, NULL,
                           PRIORITY_LOW);
