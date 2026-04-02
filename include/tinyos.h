@@ -716,6 +716,22 @@ uint32_t fs_get_free_space(void);
 uint32_t fs_get_total_space(void);
 
 /*
+ * Extended Task / Memory API  (used by shell and other diagnostics)
+ */
+
+/* Get task statistics by zero-based index.
+ * Iterates the internal task pool; returns OS_ERROR if index is out of range. */
+os_error_t os_task_get_stats_by_index(uint32_t index, task_stats_t *stats);
+
+/* Find a task control block by name.
+ * Returns NULL if no task with the given name exists. */
+tcb_t *os_task_find_by_name(const char *name);
+
+/* Get detailed heap statistics. */
+void os_get_memory_stats(size_t *free_bytes, size_t *used_bytes,
+                         uint32_t *alloc_count, uint32_t *free_count);
+
+/*
  * Debug Helper API
  */
 
