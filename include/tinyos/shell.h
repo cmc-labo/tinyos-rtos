@@ -7,7 +7,7 @@
  *  - Command history  : up/down arrows, SHELL_HISTORY_DEPTH entries
  *  - Tab completion   : command name matching with longest-common-prefix fill
  *  - Quoted strings   : tokens wrapped in " " are kept as one argument
- *  - 19 built-in commands (see shell.c for the full list)
+ *  - 23 built-in commands (see shell.c for the full list)
  *
  * Usage:
  *   // Optionally register custom commands before starting

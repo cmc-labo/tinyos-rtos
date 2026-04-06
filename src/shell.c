@@ -2,14 +2,14 @@
  * @file shell.c
  * @brief Interactive shell for TinyOS — Enhanced Edition
  *
- * Built-in commands (19 total):
+ * Built-in commands (23 total):
  *   help, clear, echo, history,
  *   ps, top, kill,
- *   mem, ver,
+ *   mem, ver, uptime,
  *   net, ping, ifconfig,
  *   power,
- *   ls, cat, mkdir, rm, df,
- *   reboot
+ *   ls, cat, mkdir, rm, df, touch, cp,
+ *   sleep, reboot
  *
  * Line editor features:
  *   ← → arrows    : cursor movement
@@ -905,6 +905,100 @@ static int cmd_reboot(int argc, char *argv[]) {
 }
 
 /*===========================================================================
+ * Built-in: uptime  (concise uptime display)
+ *===========================================================================*/
+
+static int cmd_uptime(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    uint32_t up_ms  = os_get_uptime_ms();
+    uint32_t up_sec = up_ms  / 1000;
+    uint32_t up_min = up_sec / 60;
+    uint32_t up_hr  = up_min / 60;
+    uint32_t up_day = up_hr  / 24;
+
+    if (up_day > 0) {
+        shell_printf("  up %lu day(s), %02lu:%02lu:%02lu\r\n",
+                     (unsigned long)up_day,
+                     (unsigned long)(up_hr  % 24),
+                     (unsigned long)(up_min % 60),
+                     (unsigned long)(up_sec % 60));
+    } else {
+        shell_printf("  up %02lu:%02lu:%02lu\r\n",
+                     (unsigned long)up_hr,
+                     (unsigned long)(up_min % 60),
+                     (unsigned long)(up_sec % 60));
+    }
+    return 0;
+}
+
+/*===========================================================================
+ * Built-in: sleep <ms>  (delay the shell task)
+ *===========================================================================*/
+
+static int cmd_sleep(int argc, char *argv[]) {
+    if (argc < 2) return 1;
+    uint32_t ms = (uint32_t)strtoul(argv[1], NULL, 10);
+    os_task_delay_ms(ms);
+    return 0;
+}
+
+/*===========================================================================
+ * Built-in: touch <file>  (create empty file if it does not exist)
+ *===========================================================================*/
+
+static int cmd_touch(int argc, char *argv[]) {
+    if (argc < 2) return 1;
+    fs_file_t fd = fs_open(argv[1], FS_O_WRONLY | FS_O_CREAT);
+    if (fd == FS_INVALID_FD) {
+        shell_printf("  touch '%s': failed\r\n", argv[1]);
+        return 0;
+    }
+    fs_close(fd);
+    shell_printf("  touch '%s': OK\r\n", argv[1]);
+    return 0;
+}
+
+/*===========================================================================
+ * Built-in: cp <src> <dst>  (copy file)
+ *===========================================================================*/
+
+static int cmd_cp(int argc, char *argv[]) {
+    if (argc < 3) return 1;
+
+    fs_file_t src = fs_open(argv[1], FS_O_RDONLY);
+    if (src == FS_INVALID_FD) {
+        shell_printf("  cp: cannot open '%s'\r\n", argv[1]);
+        return 0;
+    }
+
+    fs_file_t dst = fs_open(argv[2], FS_O_WRONLY | FS_O_CREAT | FS_O_TRUNC);
+    if (dst == FS_INVALID_FD) {
+        fs_close(src);
+        shell_printf("  cp: cannot create '%s'\r\n", argv[2]);
+        return 0;
+    }
+
+    char buf[128];
+    int32_t n;
+    uint32_t total = 0;
+    while ((n = fs_read(src, buf, sizeof(buf))) > 0) {
+        if (fs_write(dst, buf, (uint32_t)n) != n) {
+            shell_printf("  cp: write error\r\n");
+            fs_close(src);
+            fs_close(dst);
+            return 0;
+        }
+        total += (uint32_t)n;
+    }
+
+    fs_close(src);
+    fs_close(dst);
+    shell_printf("  cp '%s' -> '%s': %lu bytes\r\n",
+                 argv[1], argv[2], (unsigned long)total);
+    return 0;
+}
+
+/*===========================================================================
  * Command parsing  (supports "quoted strings" as single tokens)
  *===========================================================================*/
 
@@ -1045,6 +1139,14 @@ shell_error_t shell_start(const shell_io_t *cfg) {
           "df  — show filesystem statistics" },
         { "reboot",   cmd_reboot,
           "reboot  — reboot the system" },
+        { "uptime",   cmd_uptime,
+          "uptime  — show system uptime" },
+        { "sleep",    cmd_sleep,
+          "sleep <ms>  — delay shell for N milliseconds" },
+        { "touch",    cmd_touch,
+          "touch <file>  — create empty file" },
+        { "cp",       cmd_cp,
+          "cp <src> <dst>  — copy file" },
     };
     for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++)
         shell_register_cmd(builtins[i].name, builtins[i].fn, builtins[i].help);
