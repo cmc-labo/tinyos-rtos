@@ -13,7 +13,8 @@ Kernel footprint under 10 KB, 2 KB minimum RAM, preemptive priority-based schedu
 | **Synchronization** | Mutex (with priority inheritance), semaphore, condition variable, event groups, message queues |
 | **Software Timers** | One-shot and auto-reload, millisecond precision, period change at runtime |
 | **Memory** | Fixed-block pool allocator, stack overflow detection, per-task high-water mark |
-| **Shell** | VT100 interactive shell — 19 built-in commands, command history (↑↓), tab completion, full line editor |
+| **Shell** | VT100 interactive shell — 23 built-in commands, command history (↑↓), tab completion, full line editor |
+| **POSIX Compatibility** | pthreads (create/join/detach/exit, mutex, cond var) · BSD socket API (socket/bind/listen/accept/connect/send/recv, inet_pton/ntop, htons/htonl) |
 | **File System** | Lightweight block-device FS, POSIX-like API, wear levelling, power-fail safe |
 | **Network** | Ethernet, IPv4, ICMP, UDP, TCP, HTTP client/server, DNS |
 | **TLS / DTLS** | TLS 1.2/1.3 over TCP, DTLS 1.2 over UDP (mbedTLS backend) |
@@ -160,6 +161,10 @@ shell_register_cmd("led", cmd_led, "led <on|off>  Toggle LED");
 | `mkdir <path>` | Create directory |
 | `rm <path>` | Remove file or empty directory |
 | `df` | Filesystem usage statistics |
+| `touch <file>` | Create empty file |
+| `cp <src> <dst>` | Copy file |
+| `uptime` | Show system uptime (`HH:MM:SS` or `N day(s), HH:MM:SS`) |
+| `sleep <ms>` | Delay the shell task for N milliseconds |
 | `reboot` | Reboot the system |
 
 **Line editor key bindings:**
@@ -200,6 +205,141 @@ net_dns_resolve(hostname, ip, timeout_ms)
 net_http_get(url, response, timeout_ms)
 net_http_post(url, content_type, body, len, response, timeout_ms)
 ```
+
+### POSIX Compatibility
+
+TinyOS provides two thin compatibility layers that allow standard portable code to
+be compiled and run on TinyOS with minimal changes.
+
+#### pthreads (`include/tinyos/posix_threads.h`)
+
+Add `src/posix/posix_threads.c` to your build.
+
+```c
+#include "tinyos/posix_threads.h"
+
+/* ── Thread ── */
+pthread_t tid;
+pthread_attr_t attr;
+pthread_attr_init(&attr);
+tinyos_pthread_attr_setpriority(&attr, PRIORITY_NORMAL); /* TinyOS extension */
+pthread_create(&tid, &attr, my_fn, arg);
+pthread_join(tid, &retval);
+pthread_detach(tid);    /* free resources automatically on exit */
+pthread_exit(retval);   /* terminate calling thread */
+pthread_self();         /* handle of calling thread */
+
+/* ── Mutex ── */
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_lock(&mtx);
+pthread_mutex_trylock(&mtx);   /* returns EBUSY if already locked */
+pthread_mutex_unlock(&mtx);
+
+/* ── Condition variable ── */
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_wait(&cond, &mtx);
+pthread_cond_timedwait(&cond, &mtx, &abstime); /* abstime relative to boot */
+pthread_cond_signal(&cond);
+pthread_cond_broadcast(&cond);
+```
+
+| Concept | Mapped to |
+|---|---|
+| `pthread_t` | Index into an internal pool of TinyOS `tcb_t` slots |
+| `pthread_mutex_t` | Embeds `mutex_t` directly (zero-init / `PTHREAD_MUTEX_INITIALIZER` valid) |
+| `pthread_cond_t` | Embeds `cond_var_t` directly (zero-init / `PTHREAD_COND_INITIALIZER` valid) |
+| `pthread_join` | Waits on a per-thread `semaphore_t` posted by `pthread_exit` |
+
+**Not supported:** `pthread_cancel`, thread-local storage (`pthread_key_*`),
+recursive mutexes (returns `ENOTSUP`).
+
+**Configuration** (`include/tinyos/posix_threads.h`):
+
+```c
+#define PTHREAD_MAX_THREADS  MAX_TASKS  /* max concurrent pthreads */
+```
+
+#### BSD Sockets (`include/tinyos/posix_socket.h`)
+
+Add `src/posix/posix_socket.c` to your build.
+
+```c
+#include "tinyos/posix_socket.h"
+
+/* ── TCP server ── */
+int srv = socket(AF_INET, SOCK_STREAM, 0);
+
+int reuse = 1;
+setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+struct sockaddr_in addr = {
+    .sin_family = AF_INET,
+    .sin_port   = htons(8080),
+    .sin_addr   = { htonl(INADDR_ANY) },
+};
+bind(srv, (struct sockaddr *)&addr, sizeof(addr));
+listen(srv, 4);
+
+struct sockaddr_in peer;
+socklen_t plen = sizeof(peer);
+int client = accept(srv, (struct sockaddr *)&peer, &plen);
+recv(client, buf, sizeof(buf), 0);
+send(client, response, response_len, 0);
+posix_sock_close(client);   /* or define TINYOS_POSIX_WRAP_CLOSE to use close() */
+posix_sock_close(srv);
+
+/* ── TCP client ── */
+int fd = socket(AF_INET, SOCK_STREAM, 0);
+struct sockaddr_in dest = {
+    .sin_family = AF_INET,
+    .sin_port   = htons(80),
+    .sin_addr   = { inet_addr("192.168.1.1") },
+};
+connect(fd, (struct sockaddr *)&dest, sizeof(dest));
+send(fd, request, request_len, 0);
+recv(fd, buf, sizeof(buf), 0);
+posix_sock_close(fd);
+
+/* ── UDP ── */
+int udp = socket(AF_INET, SOCK_DGRAM, 0);
+sendto(udp, data, len, 0, (struct sockaddr *)&dest, sizeof(dest));
+recvfrom(udp, buf, sizeof(buf), 0, (struct sockaddr *)&src, &srclen);
+posix_sock_close(udp);
+
+/* ── Address utilities ── */
+htons(port) / htonl(addr) / ntohs(n) / ntohl(n)
+inet_addr("192.168.1.1")              /* → in_addr_t, network byte order */
+inet_ntoa(in)                          /* → "192.168.1.1" (static buffer) */
+inet_pton(AF_INET, "192.168.1.1", &in_addr)
+inet_ntop(AF_INET, &in_addr, buf, sizeof(buf))
+```
+
+| BSD call | Mapped to |
+|---|---|
+| `socket()` | `net_socket()` |
+| `bind()` | `net_bind()` |
+| `listen()` | `net_listen()` |
+| `accept()` | `net_accept()` |
+| `connect()` | `net_connect()` |
+| `send()` / `recv()` | `net_send()` / `net_recv()` |
+| `sendto()` / `recvfrom()` | `net_sendto()` / `net_recvfrom()` |
+| `posix_sock_close()` | `net_close()` |
+
+**Supported `setsockopt` options:**
+
+| Option | Effect |
+|---|---|
+| `SO_REUSEADDR` | Accepted; no-op (always reusable in TinyOS) |
+| `SO_RCVTIMEO` | Sets receive timeout per socket (struct timeval → ms) |
+| `SO_SNDTIMEO` | Sets send/connect timeout per socket |
+
+**`close()` redirection:** define `TINYOS_POSIX_WRAP_CLOSE` before including the
+header to map `close(fd)` → `posix_sock_close(fd)`.
+
+**Not supported:** `select` / `poll` / `epoll`, non-blocking mode (`O_NONBLOCK`),
+IPv6 (`AF_INET6` returns `EAFNOSUPPORT`).
+
+---
 
 ### TLS / DTLS
 
@@ -407,7 +547,9 @@ tinyos-rtos/
 │       ├── mqtt.h            # MQTT 3.1.1 client
 │       ├── coap.h            # CoAP RFC 7252
 │       ├── ota.h             # OTA firmware updates
-│       └── watchdog.h        # Watchdog timer
+│       ├── watchdog.h        # Watchdog timer
+│       ├── posix_threads.h   # POSIX pthreads compatibility layer
+│       └── posix_socket.h    # BSD socket compatibility layer
 ├── src/
 │   ├── kernel.c              # Preemptive scheduler & task management
 │   ├── sync.c                # Mutex, semaphore, queue, condition var, event groups
@@ -422,13 +564,16 @@ tinyos-rtos/
 │   ├── ota.c                 # OTA A/B partition updates
 │   ├── mqtt.c                # MQTT client (in-flight table, offline queue)
 │   ├── coap.c                # CoAP client/server
-│   └── net/
-│       ├── network.c         # Core & buffer management
-│       ├── ethernet.c        # Ethernet / ARP
-│       ├── ip.c              # IPv4 / ICMP
-│       ├── socket.c          # UDP / TCP socket API
-│       ├── http_dns.c        # HTTP client & DNS resolver
-│       └── tls.c             # TLS/DTLS (mbedTLS wrapper)
+│   ├── net/
+│   │   ├── network.c         # Core & buffer management
+│   │   ├── ethernet.c        # Ethernet / ARP
+│   │   ├── ip.c              # IPv4 / ICMP
+│   │   ├── socket.c          # UDP / TCP socket API
+│   │   ├── http_dns.c        # HTTP client & DNS resolver
+│   │   └── tls.c             # TLS/DTLS (mbedTLS wrapper)
+│   └── posix/
+│       ├── posix_threads.c   # pthreads → TinyOS task/sync wrapper
+│       └── posix_socket.c    # BSD socket → net_* wrapper
 ├── drivers/
 │   ├── flash.c / flash.h     # Flash memory driver
 │   ├── ramdisk.c / ramdisk.h # RAM disk (testing)
@@ -449,7 +594,8 @@ tinyos-rtos/
     ├── event_groups.c        # Event synchronisation
     ├── condition_variable.c  # Producer/consumer
     ├── priority_adjustment.c # Dynamic priority
-    └── task_statistics.c     # CPU and stack monitoring
+    ├── task_statistics.c     # CPU and stack monitoring
+    └── posix_compat_demo.c   # POSIX pthreads + socket usage examples
 ```
 
 ---
@@ -463,8 +609,10 @@ tinyos-rtos/
 | Mutex | — | 12 B |
 | Semaphore | — | 8 B |
 | Message queue (10 items) | — | 40 B + data |
-| Shell (with 19 built-ins) | ~4 KB | ~2.5 KB |
+| Shell (with 23 built-ins) | ~4 KB | ~2.5 KB |
 | MQTT client (with queues) | ~8 KB | ~10 KB |
+| POSIX threads layer | ~2 KB | ~`PTHREAD_MAX_THREADS` × (tcb_t + 32 B) |
+| POSIX socket layer | ~1 KB | ~`NET_MAX_SOCKETS` × 12 B |
 
 | Architecture | Context switch |
 |---|---|
