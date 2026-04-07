@@ -444,14 +444,15 @@ static int cmd_ps(int argc, char *argv[]) {
     for (uint32_t i = 0; i < sys.total_tasks; i++) {
         task_stats_t ts;
         if (os_task_get_stats_by_index(i, &ts) != OS_OK) continue;
-        shell_printf("  %2lu  %-16s %s  %3u   %5.1f%%  %4lu / %4lu\r\n",
+        shell_printf("  %2lu  %-16s %s  %3u   %5.1f%%  %4lu / %4lu%s\r\n",
                      (unsigned long)i,
                      ts.name,
                      task_state_str(ts.state),
                      ts.priority,
                      ts.cpu_usage,
                      (unsigned long)ts.stack_used,
-                     (unsigned long)ts.stack_size);
+                     (unsigned long)ts.stack_size,
+                     ts.stack_guard_ok ? "" : "  *** STACK OVERFLOW ***");
     }
     shell_printf("\r\n  Tasks: %lu  Running: %lu\r\n",
                  (unsigned long)sys.total_tasks,
@@ -493,13 +494,14 @@ static int cmd_top(int argc, char *argv[]) {
 
     float total_cpu = 0.0f;
     for (uint32_t i = 0; i < count; i++) {
-        shell_printf("  %-16s %s  %3u   %5.1f%%  %4lu / %4lu\r\n",
+        shell_printf("  %-16s %s  %3u   %5.1f%%  %4lu / %4lu%s\r\n",
                      tasks[i].name,
                      task_state_str(tasks[i].state),
                      tasks[i].priority,
                      tasks[i].cpu_usage,
                      (unsigned long)tasks[i].stack_used,
-                     (unsigned long)tasks[i].stack_size);
+                     (unsigned long)tasks[i].stack_size,
+                     tasks[i].stack_guard_ok ? "" : "  *** STACK OVERFLOW ***");
         total_cpu += tasks[i].cpu_usage;
     }
     shell_printf("\r\n  Total CPU: %.1f%%\r\n", total_cpu);

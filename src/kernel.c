@@ -137,6 +137,13 @@ void os_scheduler(void) {
                 kernel.context_switch_count++;
                 next_task->context_switches++;  /* Track per-task context switches */
                 tcb_t *old_task = kernel.current_task;
+
+                /* Stack guard check: verify the outgoing task has not
+                 * overwritten the magic word at the bottom of its stack. */
+                if (old_task->stack[0] != STACK_GUARD_MAGIC) {
+                    os_stack_overflow_hook(old_task);
+                }
+
                 kernel.current_task = next_task;
                 next_task->state = TASK_STATE_RUNNING;
                 next_task->time_slice = TIME_SLICE_MS;
@@ -202,6 +209,11 @@ os_error_t os_task_create(
     task->base_priority = priority;  /* Store base priority */
     task->state = TASK_STATE_READY;
     task->time_slice = TIME_SLICE_MS;
+
+    /* Plant stack guard at the bottom (lowest address) of the stack.
+     * The stack grows downward, so stack[0] is the last word to be
+     * overwritten when the stack overflows. */
+    task->stack[0] = STACK_GUARD_MAGIC;
 
     /* Initialize stack (grows downward) */
     uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
@@ -560,9 +572,11 @@ static uint32_t calculate_stack_usage(tcb_t *task) {
         return 0;
     }
 
-    /* Find lowest used stack address by looking for non-zero values */
-    /* Stack grows downward, so we search from bottom */
-    uint32_t *stack_bottom = &task->stack[0];
+    /* Find lowest used stack address by looking for non-zero values.
+     * Stack grows downward, so we search upward from stack[1].
+     * stack[0] holds the guard magic and must be excluded from usage
+     * accounting so it is never misidentified as "used" stack space. */
+    uint32_t *stack_bottom = &task->stack[1];   /* skip guard word at [0] */
     uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
     uint32_t *current = stack_bottom;
 
@@ -608,6 +622,9 @@ os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats) {
 
     /* Calculate CPU usage percentage */
     stats->cpu_usage = ticks_to_percent(task->run_time);
+
+    /* Stack guard status */
+    stats->stack_guard_ok = (task->stack[0] == STACK_GUARD_MAGIC);
 
     os_exit_critical(state);
     return OS_OK;
@@ -805,4 +822,32 @@ const char *os_get_version_string(void) {
  */
 bool os_is_running(void) {
     return kernel.scheduler_running;
+}
+
+/*===========================================================================
+ * Stack Guard
+ *===========================================================================*/
+
+/**
+ * Check whether a task's stack guard word is intact.
+ */
+bool os_task_stack_is_healthy(const tcb_t *task) {
+    if (task == NULL) return false;
+    return task->stack[0] == STACK_GUARD_MAGIC;
+}
+
+/**
+ * Default overflow hook — halts with a breakpoint.
+ * Declare your own (non-weak) os_stack_overflow_hook() to override.
+ */
+__attribute__((weak))
+void os_stack_overflow_hook(tcb_t *task) {
+    (void)task;
+    /* On Cortex-M: trigger a debug breakpoint so a debugger can inspect
+     * which task overflowed.  On hardware without a debugger attached this
+     * escalates to a HardFault, which is intentional — a stack overflow is
+     * a fatal error.  Replace this with a system reset or logging call as
+     * needed for your application. */
+    __asm__ volatile("bkpt #1");
+    while (1);   /* should not be reached */
 }

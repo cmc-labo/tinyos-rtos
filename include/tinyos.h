@@ -28,6 +28,9 @@
 #define TICK_RATE_HZ            1000
 #define TIME_SLICE_MS           10
 
+/* Stack Guard — magic value planted at stack bottom to detect overflow */
+#define STACK_GUARD_MAGIC       0xDEADBEEFUL
+
 /* Task priorities (0 = highest, 255 = lowest) */
 typedef uint8_t task_priority_t;
 #define PRIORITY_CRITICAL       0
@@ -73,6 +76,7 @@ typedef struct {
     uint32_t stack_used;                /* Stack used (bytes) */
     uint32_t stack_free;                /* Stack free (bytes) */
     float cpu_usage;                    /* CPU usage percentage (0.0 - 100.0) */
+    bool stack_guard_ok;                /* false if stack guard magic was overwritten */
 } task_stats_t;
 
 /* System statistics */
@@ -335,6 +339,26 @@ os_error_t os_task_reset_stats(tcb_t *task);
 
 /* Print task statistics (for debugging) */
 void os_print_task_stats(tcb_t *task);
+
+/*
+ * Stack Guard API
+ */
+
+/**
+ * @brief Check whether a task's stack guard word is intact.
+ * @return true  if the magic value at the bottom of the stack is undamaged.
+ *         false if the stack has overflowed and corrupted the guard.
+ */
+bool os_task_stack_is_healthy(const tcb_t *task);
+
+/**
+ * @brief Overflow hook — called from the scheduler when a guard violation is
+ *        detected.  The default (weak) implementation halts with a breakpoint.
+ *        Override this function in application code to log, reset, or take any
+ *        other recovery action.
+ * @param task  The task whose stack has overflowed.
+ */
+void os_stack_overflow_hook(tcb_t *task);
 
 /* Print all tasks statistics */
 void os_print_all_stats(void);
