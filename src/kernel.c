@@ -10,8 +10,9 @@
 /* Global kernel state */
 static struct {
     tcb_t *current_task;
-    tcb_t *ready_queue[256];  /* Priority-based ready queue */
-    uint32_t ready_bitmap[8]; /* Bitmap: bit set = that priority has ready task */
+    tcb_t *ready_queue[256];      /* Priority-based ready queue — head pointers */
+    tcb_t *ready_queue_tail[256]; /* Tail pointers for O(1) enqueue             */
+    uint32_t ready_bitmap[8];     /* Bitmap: bit set = that priority has ready task */
     tcb_t task_pool[MAX_TASKS];
     uint8_t task_count;
     volatile uint32_t tick_count;
@@ -61,7 +62,9 @@ static tcb_t *scheduler_get_next_task(void) {
             kernel.ready_queue[i] = task->next;
             task->next = NULL;
             if (kernel.ready_queue[i] == NULL) {
-                kernel.ready_bitmap[w] &= ~(1u << bit);
+                /* Queue for this priority is now empty — clear both pointers. */
+                kernel.ready_bitmap[w]    &= ~(1u << bit);
+                kernel.ready_queue_tail[i] = NULL;
             }
             return task;
         }
@@ -73,23 +76,21 @@ static tcb_t *scheduler_get_next_task(void) {
  * Add task to ready queue
  */
 static void scheduler_add_ready_task(tcb_t *task) {
-    if (task->state != TASK_STATE_READY) {
-        task->state = TASK_STATE_READY;
-    }
+    task->state = TASK_STATE_READY;
+    task->next  = NULL;
 
-    /* Insert at end of priority queue */
-    if (kernel.ready_queue[task->priority] == NULL) {
-        kernel.ready_queue[task->priority] = task;
+    uint8_t prio = task->priority;
+
+    /* O(1) tail insertion — no traversal needed. */
+    if (kernel.ready_queue[prio] == NULL) {
+        kernel.ready_queue[prio] = task;          /* first in queue */
     } else {
-        tcb_t *current = kernel.ready_queue[task->priority];
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = task;
+        kernel.ready_queue_tail[prio]->next = task; /* append after current tail */
     }
-    task->next = NULL;
+    kernel.ready_queue_tail[prio] = task;
+
     /* Mark bitmap */
-    kernel.ready_bitmap[task->priority / 32] |= (1u << (task->priority % 32));
+    kernel.ready_bitmap[prio / 32] |= (1u << (prio % 32));
 }
 
 /**
@@ -420,24 +421,33 @@ uint8_t os_task_get_cpu_usage(tcb_t *task) {
  * Remove task from ready queue
  */
 static void scheduler_remove_task(tcb_t *task) {
-    /* A task can only reside in the queue for its own priority */
-    tcb_t *prev = NULL;
-    tcb_t *current = kernel.ready_queue[task->priority];
+    /* A task can only reside in the queue for its own priority. */
+    uint8_t prio  = task->priority;
+    tcb_t *prev    = NULL;
+    tcb_t *current = kernel.ready_queue[prio];
 
     while (current != NULL) {
         if (current == task) {
+            /* Unlink from the list. */
             if (prev == NULL) {
-                kernel.ready_queue[task->priority] = current->next;
+                kernel.ready_queue[prio] = current->next;
             } else {
                 prev->next = current->next;
             }
+
+            /* Maintain tail pointer when the removed node was the tail. */
+            if (kernel.ready_queue_tail[prio] == task) {
+                kernel.ready_queue_tail[prio] = prev;   /* NULL when queue is now empty */
+            }
+
             current->next = NULL;
-            if (kernel.ready_queue[task->priority] == NULL) {
-                kernel.ready_bitmap[task->priority / 32] &= ~(1u << (task->priority % 32));
+
+            if (kernel.ready_queue[prio] == NULL) {
+                kernel.ready_bitmap[prio / 32] &= ~(1u << (prio % 32));
             }
             return;
         }
-        prev = current;
+        prev    = current;
         current = current->next;
     }
 }
