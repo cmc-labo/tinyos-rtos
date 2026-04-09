@@ -6,7 +6,14 @@
  */
 
 #include "tinyos.h"
+#include "tinyos/trace.h"
 #include <string.h>
+
+/* Convenience: get the current task name safely (may be NULL before scheduler starts). */
+static const char *cur_name(void) {
+    tcb_t *t = os_task_get_current();
+    return (t && t->name[0]) ? t->name : "?";
+}
 
 /**
  * Initialize mutex
@@ -45,6 +52,7 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
             }
 
             os_exit_critical(state);
+            trace_record_syscall(cur_name(), "mutex_lock");
             return OS_OK;
         }
 
@@ -93,6 +101,7 @@ os_error_t os_mutex_unlock(mutex_t *mutex) {
     mutex->owner = NULL;
 
     os_exit_critical(state);
+    trace_record_syscall(cur_name(), "mutex_unlk");
 
     /* Allow other tasks to run */
     os_task_yield();
@@ -126,6 +135,7 @@ os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout) {
         if (sem->count > 0) {
             sem->count--;
             os_exit_critical(state);
+            trace_record_syscall(cur_name(), "sem_wait");
             return OS_OK;
         }
 
@@ -167,6 +177,7 @@ os_error_t os_semaphore_post(semaphore_t *sem) {
     uint32_t state = os_enter_critical();
     sem->count++;
     os_exit_critical(state);
+    trace_record_syscall(cur_name(), "sem_post");
 
     /* Wake up waiting tasks */
     os_task_yield();

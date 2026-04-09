@@ -2,7 +2,7 @@
  * @file shell.c
  * @brief Interactive shell for TinyOS — Enhanced Edition
  *
- * Built-in commands (23 total):
+ * Built-in commands (24 total):
  *   help, clear, echo, history,
  *   ps, top, kill,
  *   mem, ver, uptime,
@@ -27,6 +27,7 @@
 
 #include "tinyos/shell.h"
 #include "tinyos/net.h"
+#include "tinyos/trace.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -907,6 +908,65 @@ static int cmd_reboot(int argc, char *argv[]) {
 }
 
 /*===========================================================================
+ * Built-in: trace  (dump / control the trace log)
+ *===========================================================================*/
+
+static int cmd_trace(int argc, char *argv[]) {
+    if (argc >= 2) {
+        if (strcmp(argv[1], "clear") == 0) {
+            trace_clear();
+            shell_println("  Trace buffer cleared.");
+            return 0;
+        }
+        if (strcmp(argv[1], "on")  == 0) {
+            trace_enable(true);
+            shell_println("  Trace recording enabled.");
+            return 0;
+        }
+        if (strcmp(argv[1], "off") == 0) {
+            trace_enable(false);
+            shell_println("  Trace recording disabled.");
+            return 0;
+        }
+        return 1;   /* unknown sub-command → print usage */
+    }
+
+    uint32_t stored = trace_get_stored();
+    uint32_t total  = trace_get_total();
+
+    if (stored == 0) {
+        shell_println("  (trace buffer empty)");
+        return 0;
+    }
+
+    shell_printf("  %lu event(s) in buffer  |  %lu total recorded  |  recording: %s\r\n",
+                 (unsigned long)stored,
+                 (unsigned long)total,
+                 trace_is_enabled() ? "ON" : "OFF");
+    if (total > TRACE_BUFFER_SIZE) {
+        shell_printf("  (buffer full — oldest %lu event(s) overwritten)\r\n",
+                     (unsigned long)(total - TRACE_BUFFER_SIZE));
+    }
+
+    shell_println("  --------  --------  --------  ---------");
+    shell_println("  TICK      TYPE      TASK      DETAIL");
+    shell_println("  --------  --------  --------  ---------");
+
+    trace_event_t ev;
+    for (uint32_t i = 0; i < stored; i++) {
+        if (!trace_get_event(i, &ev)) break;
+        if (ev.type == TRACE_TASK_SWITCH) {
+            shell_printf("  %8lu  SWITCH    %-8s→ %s\r\n",
+                         (unsigned long)ev.tick, ev.task, ev.detail);
+        } else {
+            shell_printf("  %8lu  SYSCALL   %-8s  %s\r\n",
+                         (unsigned long)ev.tick, ev.task, ev.detail);
+        }
+    }
+    return 0;
+}
+
+/*===========================================================================
  * Built-in: uptime  (concise uptime display)
  *===========================================================================*/
 
@@ -1141,6 +1201,8 @@ shell_error_t shell_start(const shell_io_t *cfg) {
           "df  — show filesystem statistics" },
         { "reboot",   cmd_reboot,
           "reboot  — reboot the system" },
+        { "trace",    cmd_trace,
+          "trace [clear|on|off]  — dump or control the trace log" },
         { "uptime",   cmd_uptime,
           "uptime  — show system uptime" },
         { "sleep",    cmd_sleep,

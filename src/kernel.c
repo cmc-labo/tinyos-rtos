@@ -5,6 +5,7 @@
  */
 
 #include "tinyos.h"
+#include "tinyos/trace.h"
 #include <string.h>
 
 /* Global kernel state */
@@ -144,6 +145,9 @@ void os_scheduler(void) {
                 if (old_task->stack[0] != STACK_GUARD_MAGIC) {
                     os_stack_overflow_hook(old_task);
                 }
+
+                /* Record the context switch before it happens. */
+                trace_record_switch(old_task->name, next_task->name);
 
                 kernel.current_task = next_task;
                 next_task->state = TASK_STATE_RUNNING;
