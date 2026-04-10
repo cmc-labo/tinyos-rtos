@@ -2,14 +2,14 @@
  * @file shell.c
  * @brief Interactive shell for TinyOS — Enhanced Edition
  *
- * Built-in commands (24 total):
+ * Built-in commands (25 total):
  *   help, clear, echo, history,
  *   ps, top, kill,
  *   mem, ver, uptime,
  *   net, ping, ifconfig,
  *   power,
  *   ls, cat, mkdir, rm, df, touch, cp,
- *   sleep, reboot
+ *   sleep, reboot, trace, fault
  *
  * Line editor features:
  *   ← → arrows    : cursor movement
@@ -28,6 +28,7 @@
 #include "tinyos/shell.h"
 #include "tinyos/net.h"
 #include "tinyos/trace.h"
+#include "tinyos/fault.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -895,6 +896,72 @@ static int cmd_df(int argc, char *argv[]) {
 }
 
 /*===========================================================================
+ * Built-in: fault  (show last recorded fault)
+ *===========================================================================*/
+
+static const char *fault_type_name(uint8_t type) {
+    switch (type) {
+        case FAULT_HARD:  return "HardFault";
+        case FAULT_MEM:   return "MemManage";
+        case FAULT_BUS:   return "BusFault";
+        case FAULT_USAGE: return "UsageFault";
+        default:          return "Unknown";
+    }
+}
+
+static int cmd_fault(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        os_fault_clear();
+        shell_println("  Fault record cleared.");
+        return 0;
+    }
+
+    const fault_info_t *fi = os_fault_get_info();
+    if (!fi->occurred) {
+        shell_println("  No fault recorded.");
+        return 0;
+    }
+
+    char buf[80];
+    shell_println("  --- Last Fault ---");
+    snprintf(buf, sizeof(buf), "  Type     : %s", fault_type_name(fi->type));
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  Task     : %s", fi->task_name);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  Tick     : %lu", (unsigned long)fi->tick);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  PC       : 0x%08lX", (unsigned long)fi->pc);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  LR       : 0x%08lX", (unsigned long)fi->lr);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  PSR      : 0x%08lX", (unsigned long)fi->psr);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  CFSR     : 0x%08lX", (unsigned long)fi->cfsr);
+    shell_println(buf);
+    snprintf(buf, sizeof(buf), "  HFSR     : 0x%08lX", (unsigned long)fi->hfsr);
+    shell_println(buf);
+    if (fi->fault_addr) {
+        snprintf(buf, sizeof(buf), "  FaultAddr: 0x%08lX", (unsigned long)fi->fault_addr);
+        shell_println(buf);
+    }
+
+    /* Decode cause flags into human-readable text */
+    if (fi->cause != FAULT_CAUSE_NONE) {
+        shell_println("  Cause    :");
+        if (fi->cause & FAULT_CAUSE_DIVZERO)    shell_println("    - Divide by zero");
+        if (fi->cause & FAULT_CAUSE_UNDEF_INS)  shell_println("    - Undefined instruction");
+        if (fi->cause & FAULT_CAUSE_INV_STATE)  shell_println("    - Invalid CPU state");
+        if (fi->cause & FAULT_CAUSE_UNALIGNED)  shell_println("    - Unaligned access");
+        if (fi->cause & FAULT_CAUSE_DACC_VIOL)  shell_println("    - Data access violation (MPU)");
+        if (fi->cause & FAULT_CAUSE_IACC_VIOL)  shell_println("    - Instruction access violation");
+        if (fi->cause & FAULT_CAUSE_BUS_PREC)   shell_println("    - Precise bus fault");
+        if (fi->cause & FAULT_CAUSE_BUS_IMPREC) shell_println("    - Imprecise bus fault");
+    }
+
+    return 0;
+}
+
+/*===========================================================================
  * Built-in: reboot
  *===========================================================================*/
 
@@ -1211,6 +1278,8 @@ shell_error_t shell_start(const shell_io_t *cfg) {
           "touch <file>  — create empty file" },
         { "cp",       cmd_cp,
           "cp <src> <dst>  — copy file" },
+        { "fault",    cmd_fault,
+          "fault [clear]  — show or clear the last recorded fault" },
     };
     for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++)
         shell_register_cmd(builtins[i].name, builtins[i].fn, builtins[i].help);
