@@ -32,6 +32,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
 /*===========================================================================
  * Internal state
@@ -1284,6 +1285,6 @@ shell_error_t shell_start(const shell_io_t *cfg) {
     for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++)
         shell_register_cmd(builtins[i].name, builtins[i].fn, builtins[i].help);
 
-    return os_task_create(&shell_tcb, "shell", shell_task_fn, NULL,
-                          PRIORITY_LOW);
+    return (shell_error_t)os_task_create(&shell_tcb, "shell", shell_task_fn, NULL,
+                                         PRIORITY_LOW);
 }
