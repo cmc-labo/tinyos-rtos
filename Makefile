@@ -21,14 +21,19 @@ BUILD_DIR := build
 
 # Source files
 KERNEL_SRCS := $(wildcard $(SRC_DIR)/*.c)
-NET_SRCS := $(wildcard $(SRC_DIR)/net/*.c)
+NET_SRCS    := $(wildcard $(SRC_DIR)/net/*.c)
 DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
 
+# Assembly sources (Thumb-2, ARM Cortex-M specific)
+ASM_SRCS := $(wildcard $(SRC_DIR)/*.s)
+
 ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC) \
             $(if $(MBEDTLS_DIR),$(MBEDTLS_SRCS),)
-OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
+C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
+ASM_OBJS := $(patsubst %.s,$(BUILD_DIR)/%.o,$(notdir $(ASM_SRCS)))
+OBJS     := $(C_OBJS) $(ASM_OBJS)
 
 # mbedTLS configuration (set MBEDTLS_DIR to your mbedTLS source tree)
 MBEDTLS_DIR ?= $(HOME)/mbedtls
@@ -62,6 +67,9 @@ MBEDTLS_SRCS := $(wildcard $(MBEDTLS_LIB)/aes.c \
                              $(MBEDTLS_LIB)/x509.c \
                              $(MBEDTLS_LIB)/x509_crt.c)
 
+# Assembler flags (same CPU target as C compiler)
+ASFLAGS := -mcpu=$(ARCH) -mthumb -g
+
 # Compiler flags
 CFLAGS := -Wall -Wextra -Werror
 CFLAGS += -std=c11
@@ -92,6 +100,11 @@ all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).bin
 # Create build directory
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+# Assemble ARM Cortex-M sources
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.s | $(BUILD_DIR)
+	@echo "Assembling $<"
+	$(CC) $(ASFLAGS) -c $< -o $@
 
 # Compile kernel sources
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)

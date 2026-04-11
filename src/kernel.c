@@ -8,6 +8,27 @@
 #include "tinyos/trace.h"
 #include <string.h>
 
+/*===========================================================================
+ * SysTick registers (ARM Cortex-M, all variants)
+ *===========================================================================*/
+#define SYST_CSR  (*(volatile uint32_t *)0xE000E010U) /* Control & Status  */
+#define SYST_RVR  (*(volatile uint32_t *)0xE000E014U) /* Reload Value      */
+#define SYST_CVR  (*(volatile uint32_t *)0xE000E018U) /* Current Value     */
+
+#define SYST_CSR_ENABLE    (1UL << 0)  /* Counter enable                   */
+#define SYST_CSR_TICKINT   (1UL << 1)  /* SysTick exception request enable */
+#define SYST_CSR_CLKSOURCE (1UL << 2)  /* 1 = processor clock              */
+
+/* Default core clock used for SysTick period calculation.
+ * Override by defining SYSTEM_CORE_CLOCK before including tinyos.h,
+ * or pass -DSYSTEM_CORE_CLOCK=<Hz> on the compiler command line.    */
+#ifndef SYSTEM_CORE_CLOCK
+#define SYSTEM_CORE_CLOCK  168000000UL   /* 168 MHz — STM32F4 default */
+#endif
+
+/* Assembly entry point declared in context_switch.s */
+extern void os_start_first_task(uint32_t *sp);
+
 /* Global kernel state */
 static struct {
     tcb_t *current_task;
@@ -164,26 +185,48 @@ void os_scheduler(void) {
 }
 
 /**
- * Start the OS scheduler
+ * SysTick exception handler — called every 1 ms (TICK_RATE_HZ = 1000).
+ * Declared here so the linker places it in the vector table without
+ * requiring a separate startup file entry.
+ */
+void SysTick_Handler(void) {
+    os_scheduler();
+}
+
+/**
+ * Start the OS scheduler.
+ *
+ * 1. Initialises SysTick to fire at TICK_RATE_HZ using SYSTEM_CORE_CLOCK.
+ * 2. Selects the highest-priority ready task.
+ * 3. Calls os_start_first_task() (assembly) which:
+ *      a. Triggers SVC #0 → SVC_Handler
+ *      b. SVC_Handler loads PSP, switches Thread mode to PSP,
+ *         and does EXC_RETURN to launch the task.
+ *
+ * Never returns.
  */
 void os_start(void) {
     kernel.scheduler_running = true;
 
-    /* Get first task */
+    /* Select the first task to run */
     kernel.current_task = scheduler_get_next_task();
     kernel.current_task->state = TASK_STATE_RUNNING;
 
-    /* Start timer for tick */
-    /* TODO: Platform-specific timer initialization */
+    /* Configure SysTick:
+     *   reload = (core_clock / tick_rate) - 1
+     *   e.g.  168 000 000 / 1000 - 1 = 167 999                          */
+    SYST_RVR = (SYSTEM_CORE_CLOCK / TICK_RATE_HZ) - 1UL;
+    SYST_CVR = 0UL;                              /* clear current value   */
+    SYST_CSR = SYST_CSR_CLKSOURCE               /* processor clock        */
+             | SYST_CSR_TICKINT                  /* enable SysTick IRQ     */
+             | SYST_CSR_ENABLE;                  /* start counter          */
 
-    /* Jump to first task */
-    __asm__ volatile(
-        "mov sp, %0\n"
-        "bx lr\n"
-        : : "r"(kernel.current_task->stack_ptr)
-    );
+    /* Hand off to the first task via SVC (assembly trampoline).
+     * This call never returns — EXC_RETURN in SVC_Handler launches
+     * the task directly in Thread/PSP mode.                              */
+    os_start_first_task(kernel.current_task->stack_ptr);
 
-    /* Should never reach here */
+    /* Unreachable */
     while (1);
 }
 
