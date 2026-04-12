@@ -26,8 +26,17 @@
 #define SYSTEM_CORE_CLOCK  168000000UL   /* 168 MHz — STM32F4 default */
 #endif
 
-/* Assembly entry point declared in context_switch.s */
+/* Assembly entry points declared in context_switch.s */
 extern void os_start_first_task(uint32_t *sp);
+extern void os_pend_sv(void);
+
+/*===========================================================================
+ * SCB system handler priority registers (for PendSV / SysTick)
+ *===========================================================================*/
+#define SCB_SHPR3  (*(volatile uint32_t *)0xE000ED20U)
+/* SHPR3 bits [23:16] = PendSV priority, bits [31:24] = SysTick priority */
+#define PENDSV_PRIO_LOWEST  (0xFFUL << 16)  /* PendSV  = 255 (lowest)    */
+#define SYSTICK_PRIO_HIGH   (0xC0UL << 24)  /* SysTick = 192             */
 
 /* Global kernel state */
 static struct {
@@ -44,6 +53,7 @@ static struct {
 
 /* Forward declarations */
 static void scheduler_remove_task(tcb_t *task);
+static void scheduler_enqueue(tcb_t *task);
 static void scheduler_add_ready_task(tcb_t *task);
 
 /* Idle task */
@@ -95,19 +105,21 @@ static tcb_t *scheduler_get_next_task(void) {
 }
 
 /**
- * Add task to ready queue
+ * scheduler_enqueue — internal: add task to ready queue without preemption check.
+ * Called from both scheduler_add_ready_task() and os_pendsv_switch() (the latter
+ * must not trigger another PendSV while already inside PendSV_Handler).
  */
-static void scheduler_add_ready_task(tcb_t *task) {
+static void scheduler_enqueue(tcb_t *task) {
     task->state = TASK_STATE_READY;
     task->next  = NULL;
 
     uint8_t prio = task->priority;
 
-    /* O(1) tail insertion — no traversal needed. */
+    /* O(1) tail insertion */
     if (kernel.ready_queue[prio] == NULL) {
-        kernel.ready_queue[prio] = task;          /* first in queue */
+        kernel.ready_queue[prio] = task;
     } else {
-        kernel.ready_queue_tail[prio]->next = task; /* append after current tail */
+        kernel.ready_queue_tail[prio]->next = task;
     }
     kernel.ready_queue_tail[prio] = task;
 
@@ -116,22 +128,88 @@ static void scheduler_add_ready_task(tcb_t *task) {
 }
 
 /**
- * Move a task to a new priority level within the ready queue
- * Must be called from within a critical section
+ * scheduler_add_ready_task — public-internal: enqueue + immediate preemption check.
+ *
+ * If the newly-ready task has strictly higher priority (lower numeric value)
+ * than the currently running task, PendSV is pended so the switch happens
+ * as soon as the current exception (if any) exits.
+ */
+static void scheduler_add_ready_task(tcb_t *task) {
+    scheduler_enqueue(task);
+
+    /* Preemption check: trigger PendSV if the new task outranks the current one. */
+    if (kernel.scheduler_running &&
+        kernel.current_task != NULL &&
+        task->priority < kernel.current_task->priority) {
+        os_pend_sv();
+    }
+}
+
+/**
+ * Move a task to a new priority level within the ready queue.
+ * Must be called from within a critical section.
+ * Uses scheduler_enqueue to avoid double preemption trigger.
  */
 static void scheduler_reprioritize(tcb_t *task, task_priority_t new_priority) {
     if (task->state == TASK_STATE_READY) scheduler_remove_task(task);
     task->priority = new_priority;
-    if (task->state == TASK_STATE_READY) scheduler_add_ready_task(task);
+    if (task->state == TASK_STATE_READY) scheduler_enqueue(task);
 }
 
 /**
- * Context switch (to be implemented in assembly for target architecture)
+ * os_pendsv_switch — C-level context switch body, called from PendSV_Handler.
+ *
+ * @param old_psp  PSP of the outgoing task AFTER R4-R11 have been pushed
+ *                 (PendSV_Handler already saved them before calling here).
+ * @return         stack_ptr of the incoming task, pointing at its saved R4-R11
+ *                 (PendSV_Handler will restore R4-R11 and set PSP from this).
+ *
+ * Interrupts are disabled by PendSV_Handler (CPSID I) for the duration.
  */
-extern void context_switch(uint32_t **old_sp, uint32_t **new_sp);
+uint32_t *os_pendsv_switch(uint32_t *old_psp) {
+    tcb_t *old_task = kernel.current_task;
+
+    /* Commit the outgoing task's PSP (R4-R11 already pushed by PendSV_Handler) */
+    old_task->stack_ptr = old_psp;
+
+    /* Stack guard check */
+    if (old_task->stack[0] != STACK_GUARD_MAGIC) {
+        os_stack_overflow_hook(old_task);
+    }
+
+    /* If the outgoing task is still runnable (preempted, not blocked/terminated),
+     * put it back at the tail of its priority queue for round-robin within level. */
+    if (old_task->state == TASK_STATE_RUNNING) {
+        scheduler_enqueue(old_task);    /* enqueue without re-triggering PendSV */
+    }
+
+    /* Select the next task (highest priority, FIFO within priority) */
+    tcb_t *next_task = scheduler_get_next_task();
+
+    /* Record the switch in the trace log */
+    trace_record_switch(old_task->name, next_task->name);
+
+    /* Update counters and state */
+    kernel.context_switch_count++;
+    next_task->context_switches++;
+    kernel.current_task = next_task;
+    next_task->state    = TASK_STATE_RUNNING;
+    next_task->time_slice = TIME_SLICE_MS;
+
+    /* Return new task's stack_ptr; PendSV_Handler restores R4-R11 from there */
+    return next_task->stack_ptr;
+}
 
 /**
- * Scheduler - called by timer interrupt
+ * os_scheduler — SysTick ISR body.
+ *
+ * Responsibilities (time-keeping only; actual switch is done by PendSV):
+ *   1. Increment tick counter.
+ *   2. Charge one tick to the current task's run time.
+ *   3. Decrement time slice; pend PendSV when it reaches zero.
+ *
+ * Preemption triggered by newly-ready tasks (e.g. from semaphore_post) is
+ * handled separately inside scheduler_add_ready_task() → os_pend_sv().
  */
 void os_scheduler(void) {
     if (!kernel.scheduler_running) {
@@ -140,46 +218,17 @@ void os_scheduler(void) {
 
     kernel.tick_count++;
 
-    /* Update current task time slice */
     if (kernel.current_task != NULL) {
         kernel.current_task->run_time++;
+
         if (kernel.current_task->time_slice > 0) {
             kernel.current_task->time_slice--;
         }
 
-        /* Preempt if time slice expired */
+        /* Time slice exhausted — request a context switch via PendSV.
+         * PendSV fires after SysTick returns (it has lower priority). */
         if (kernel.current_task->time_slice == 0) {
-            if (kernel.current_task->state == TASK_STATE_RUNNING) {
-                scheduler_add_ready_task(kernel.current_task);
-            }
-
-            /* Get next task */
-            tcb_t *next_task = scheduler_get_next_task();
-
-            if (next_task != kernel.current_task) {
-                kernel.context_switch_count++;
-                next_task->context_switches++;  /* Track per-task context switches */
-                tcb_t *old_task = kernel.current_task;
-
-                /* Stack guard check: verify the outgoing task has not
-                 * overwritten the magic word at the bottom of its stack. */
-                if (old_task->stack[0] != STACK_GUARD_MAGIC) {
-                    os_stack_overflow_hook(old_task);
-                }
-
-                /* Record the context switch before it happens. */
-                trace_record_switch(old_task->name, next_task->name);
-
-                kernel.current_task = next_task;
-                next_task->state = TASK_STATE_RUNNING;
-                next_task->time_slice = TIME_SLICE_MS;
-
-                /* Perform context switch */
-                context_switch(&old_task->stack_ptr, &next_task->stack_ptr);
-            } else {
-                /* Same task continues; reset its time slice to avoid repeated rescheduling */
-                next_task->time_slice = TIME_SLICE_MS;
-            }
+            os_pend_sv();
         }
     }
 }
@@ -211,6 +260,13 @@ void os_start(void) {
     /* Select the first task to run */
     kernel.current_task = scheduler_get_next_task();
     kernel.current_task->state = TASK_STATE_RUNNING;
+
+    /* Set exception priorities (must be done before enabling SysTick).
+     *   PendSV  = 0xFF (255, lowest possible) — runs after all other ISRs.
+     *   SysTick = 0xC0 (192) — higher than PendSV so tick counting is
+     *             not delayed by a context switch in progress.
+     * Lower numeric value = higher priority on ARM Cortex-M.             */
+    SCB_SHPR3 = PENDSV_PRIO_LOWEST | SYSTICK_PRIO_HIGH;
 
     /* Configure SysTick:
      *   reload = (core_clock / tick_rate) - 1
@@ -359,15 +415,17 @@ os_error_t os_task_resume(tcb_t *task) {
 }
 
 /**
- * Yield CPU to other tasks
+ * Yield CPU to other tasks.
+ *
+ * Pends PendSV so the context switch happens cleanly after any active ISR
+ * completes.  The current task remains RUNNING; os_pendsv_switch() will
+ * re-enqueue it at the tail of its priority level (fair round-robin).
  */
 void os_task_yield(void) {
     if (kernel.current_task == NULL) {
         return;
     }
-    /* Trigger scheduler */
-    kernel.current_task->time_slice = 0;
-    os_scheduler();
+    os_pend_sv();
 }
 
 /**

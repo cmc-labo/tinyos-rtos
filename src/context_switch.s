@@ -20,7 +20,7 @@
  *        │  R0      │ ─┘
  *        ├──────────┤
  *        │  R11     │ ─┐
- *        │  R10     │  │  saved by context_switch() (manually)
+ *        │  R10     │  │  saved by PendSV_Handler (manually)
  *        │  R9      │  │
  *        │  R8      │  │
  *        │  R7      │  │
@@ -33,48 +33,91 @@
  * On the very first run the initial fake frame occupies the top
  * 8 words and there is no R4-R11 block; os_start_first_task()
  * handles that case separately.
+ *
+ * Preemptive scheduling overview
+ * --------------------------------
+ * SysTick  : manages tick counter and time-slice countdown.
+ *            When a switch is needed it pends PendSV via os_pend_sv().
+ * PendSV   : lowest-priority exception — fires AFTER all other ISRs.
+ *            Performs the actual PSP swap (save R4-R11, call C helper,
+ *            restore R4-R11). This cleanly decouples scheduling policy
+ *            (kernel.c) from the hardware-dependent register save/restore.
+ * os_pend_sv(): sets ICSR.PENDSVSET from any context (Thread or Handler).
  */
 
     .syntax unified
     .thumb
 
 /* -----------------------------------------------------------------------
- * context_switch(uint32_t **old_sp, uint32_t **new_sp)
+ * os_pend_sv()
  *
- *   R0 = &old_task->stack_ptr
- *   R1 = &new_task->stack_ptr
+ * Requests a PendSV exception by setting bit 28 (PENDSVSET) in the
+ * Interrupt Control and State Register (ICSR, 0xE000ED04).
  *
- * Called as a normal C function from inside SysTick_Handler
- * (Handler mode; MSP is in use).  At this point the CPU has already
- * auto-saved {R0-R3, R12, LR, PC, xPSR} of the OLD task onto its PSP.
- *
- * This routine:
- *   1. Manually saves R4-R11 below the auto-saved frame on OLD PSP.
- *   2. Stores the updated PSP into *old_sp.
- *   3. Loads the NEW PSP from *new_sp.
- *   4. Manually restores R4-R11 from NEW PSP.
- *   5. Updates PSP so the auto-save frame is next.
- *   6. Returns to SysTick_Handler (BX LR → MSP/Handler context).
- *      SysTick then does its own EXC_RETURN which pops the NEW task's
- *      auto-save frame → NEW task resumes.
+ * Safe to call from both Thread mode and Handler mode (ISR).
+ * PendSV will fire AFTER all currently-active exceptions complete,
+ * guaranteeing the context switch happens at the lowest-priority moment.
  * ----------------------------------------------------------------------- */
 
-    .global context_switch
-    .type   context_switch, %function
-context_switch:
-    /* --- save old task ------------------------------------------------- */
-    MRS     R2, PSP                 /* R2 = old task's current PSP          */
-    STMDB   R2!, {R4-R11}          /* push R4-R11 downward; R2 updated      */
-    STR     R2, [R0]               /* *old_sp = updated PSP                 */
+    .global os_pend_sv
+    .type   os_pend_sv, %function
+os_pend_sv:
+    LDR     R0, =0xE000ED04         /* ICSR address                          */
+    LDR     R1, =0x10000000         /* bit 28 = PENDSVSET                    */
+    STR     R1, [R0]                /* write → PendSV becomes pending        */
+    DSB                             /* ensure write completes before return  */
+    ISB                             /* flush pipeline                        */
+    BX      LR
+    .size os_pend_sv, . - os_pend_sv
 
-    /* --- restore new task ----------------------------------------------- */
-    LDR     R2, [R1]               /* R2 = new task's saved stack_ptr       */
-    LDMIA   R2!, {R4-R11}          /* pop R4-R11 upward; R2 updated         */
-    MSR     PSP, R2                /* PSP now points at new task's auto-frame*/
 
-    /* --- return to ISR -------------------------------------------------- */
-    BX      LR                     /* back to SysTick; EXC_RETURN follows   */
-    .size context_switch, . - context_switch
+/* -----------------------------------------------------------------------
+ * PendSV_Handler  — the actual context switch
+ *
+ * Runs at the lowest interrupt priority (configured in os_start()).
+ * On entry (Handler mode, MSP; CPU has auto-saved old task's
+ * {R0-R3, R12, LR, PC, xPSR} to its PSP):
+ *
+ *   1. Save R4-R11 below the auto-saved frame on old task's PSP.
+ *   2. Call os_pendsv_switch(old_psp) → C decides old/new task,
+ *      returns new task's stack_ptr (pointing at its saved R4-R11).
+ *   3. Restore R4-R11 from new task's PSP.
+ *   4. Update PSP to point at new task's auto-save frame.
+ *   5. EXC_RETURN → CPU pops {R0-R3, R12, LR, PC, xPSR} from new PSP.
+ *
+ * C prototype (kernel.c):
+ *   uint32_t *os_pendsv_switch(uint32_t *old_psp);
+ * ----------------------------------------------------------------------- */
+
+    .global PendSV_Handler
+    .type   PendSV_Handler, %function
+PendSV_Handler:
+    /* Disable interrupts during the register manipulation to prevent
+     * a higher-priority ISR from corrupting our PSP work.           */
+    CPSID   I
+
+    /* Save callee-saved registers of the outgoing task.
+     * R0 ← PSP of old task (after CPU's auto-save frame).          */
+    MRS     R0, PSP
+    STMDB   R0!, {R4-R11}           /* push R4-R11 below auto-frame  */
+
+    /* Call C scheduler to commit old PSP and obtain new PSP.
+     * R0 (first argument) = updated PSP after saving R4-R11.
+     * Return value (R0)   = new task's stack_ptr (at its R4-R11).  */
+    PUSH    {LR}                    /* preserve EXC_RETURN value      */
+    BL      os_pendsv_switch        /* R0 = os_pendsv_switch(old_psp) */
+    POP     {LR}                    /* restore EXC_RETURN             */
+
+    /* Restore callee-saved registers of the incoming task.          */
+    LDMIA   R0!, {R4-R11}           /* pop R4-R11; R0 advances past them */
+
+    /* Point PSP at the new task's auto-save frame (R0-R3/R12/LR/PC/xPSR).
+     * EXC_RETURN will pop these automatically.                      */
+    MSR     PSP, R0
+
+    CPSIE   I                       /* re-enable interrupts           */
+    BX      LR                      /* EXC_RETURN → new task resumes  */
+    .size PendSV_Handler, . - PendSV_Handler
 
 
 /* -----------------------------------------------------------------------
@@ -90,7 +133,7 @@ context_switch:
     .global os_start_first_task
     .type   os_start_first_task, %function
 os_start_first_task:
-    SVC     #0                     /* → SVC_Handler; R0 preserved in frame  */
+    SVC     #0                      /* → SVC_Handler; R0 preserved in frame  */
     /* unreachable */
     B       .
     .size os_start_first_task, . - os_start_first_task
@@ -115,15 +158,15 @@ os_start_first_task:
     .type   SVC_Handler, %function
 SVC_Handler:
     MRS     R1, MSP
-    LDR     R0, [R1, #0]           /* frame[0] = original R0 = first SP     */
+    LDR     R0, [R1, #0]            /* frame[0] = original R0 = first SP     */
 
-    MSR     PSP, R0                /* set first task's PSP                  */
+    MSR     PSP, R0                 /* set first task's PSP                  */
 
     MOV     R0, #2
-    MSR     CONTROL, R0            /* CONTROL.SPSEL = 1 → Thread uses PSP   */
-    ISB                            /* flush pipeline after CONTROL write     */
+    MSR     CONTROL, R0             /* CONTROL.SPSEL = 1 → Thread uses PSP   */
+    ISB                             /* flush pipeline after CONTROL write     */
 
-    /* Zero callee-saved registers so the first task starts cleanly */
+    /* Zero callee-saved registers so the first task starts cleanly  */
     MOV     R4,  #0
     MOV     R5,  #0
     MOV     R6,  #0
@@ -134,12 +177,8 @@ SVC_Handler:
     MOV     R11, #0
 
     /* EXC_RETURN = 0xFFFFFFFD
-     *   bits[31:4] = 0xFFFFFFF  (EXC_RETURN magic)
-     *   bit  3     = 1          return to Thread mode
-     *   bit  2     = 1          return using PSP
-     *   bit  1     = 0          (reserved)
-     *   bit  0     = 1          (EXC_RETURN marker, must be 1)
-     *
+     *   bit 3 = 1  return to Thread mode
+     *   bit 2 = 1  return using PSP
      * CPU pops {R0-R3, R12, LR, PC, xPSR} from PSP → first task runs.
      */
     LDR     LR, =0xFFFFFFFD
