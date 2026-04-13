@@ -62,7 +62,8 @@ typedef struct task_control_block {
     uint32_t run_time;                  /* Total run time (ticks) */
     uint32_t context_switches;          /* Number of context switches */
     uint32_t stack_high_water_mark;     /* Maximum stack usage (bytes) */
-    struct task_control_block *next;    /* Next task in queue */
+    uint32_t wake_tick;                 /* Tick count when delay expires (delay queue) */
+    struct task_control_block *next;    /* Next task in queue (ready or delay) */
 } tcb_t;
 
 /* Task statistics */

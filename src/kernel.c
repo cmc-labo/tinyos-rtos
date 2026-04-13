@@ -44,6 +44,7 @@ static struct {
     tcb_t *ready_queue[256];      /* Priority-based ready queue — head pointers */
     tcb_t *ready_queue_tail[256]; /* Tail pointers for O(1) enqueue             */
     uint32_t ready_bitmap[8];     /* Bitmap: bit set = that priority has ready task */
+    tcb_t *delay_queue;           /* Singly-linked list sorted by wake_tick ASC  */
     tcb_t task_pool[MAX_TASKS];
     uint8_t task_count;
     volatile uint32_t tick_count;
@@ -55,6 +56,9 @@ static struct {
 static void scheduler_remove_task(tcb_t *task);
 static void scheduler_enqueue(tcb_t *task);
 static void scheduler_add_ready_task(tcb_t *task);
+static void delay_queue_insert(tcb_t *task);
+static void delay_queue_remove(tcb_t *task);
+static void delay_queue_tick(void);
 
 /* Idle task */
 static void idle_task(void *param) {
@@ -218,6 +222,9 @@ void os_scheduler(void) {
 
     kernel.tick_count++;
 
+    /* Wake any tasks whose delay has expired. */
+    delay_queue_tick();
+
     if (kernel.current_task != NULL) {
         kernel.current_task->run_time++;
 
@@ -356,8 +363,9 @@ os_error_t os_task_delete(tcb_t *task) {
 
     uint32_t state = os_enter_critical();
 
-    /* Remove from ready queue before changing state */
+    /* Remove from ready queue or delay queue (task is in exactly one). */
     scheduler_remove_task(task);
+    delay_queue_remove(task);
     task->state = TASK_STATE_TERMINATED;
     kernel.task_count--;
 
@@ -382,8 +390,9 @@ os_error_t os_task_suspend(tcb_t *task) {
 
     uint32_t state = os_enter_critical();
 
-    /* Remove from ready queue before suspending */
+    /* Remove from ready queue or delay queue (task is in exactly one). */
     scheduler_remove_task(task);
+    delay_queue_remove(task);
     task->state = TASK_STATE_SUSPENDED;
     bool is_current = (task == kernel.current_task);
 
@@ -429,20 +438,37 @@ void os_task_yield(void) {
 }
 
 /**
- * Delay task execution
+ * Delay task execution — true blocking implementation.
+ *
+ * Sets the calling task's state to BLOCKED, inserts it into the delay
+ * queue sorted by wake_tick, then pends PendSV.  Because the task is
+ * BLOCKED, os_pendsv_switch() will NOT re-enqueue it; it stays off the
+ * ready queue until delay_queue_tick() wakes it from the SysTick ISR.
+ *
+ * Zero-tick delay yields once (lets equal-priority peers run) and returns.
  */
 void os_task_delay(uint32_t ticks) {
-    uint32_t target = kernel.tick_count + ticks;
-    /* Use subtraction to handle tick_count wraparound correctly */
-    while ((int32_t)(target - kernel.tick_count) > 0) {
+    if (ticks == 0) {
         os_task_yield();
+        return;
     }
+
+    uint32_t cs = os_enter_critical();
+
+    tcb_t *task    = kernel.current_task;
+    task->wake_tick = kernel.tick_count + ticks;
+    task->state     = TASK_STATE_BLOCKED;
+    delay_queue_insert(task);
+
+    os_exit_critical(cs);
+
+    /* Hand off the CPU — task will not be re-enqueued until it wakes. */
+    os_pend_sv();
 }
 
 /**
- * Delay task execution in milliseconds
- * Converts ms to ticks using TICK_RATE_HZ to stay portable
- * regardless of the configured tick rate.
+ * Delay task execution in milliseconds.
+ * Converts ms to ticks; rounds up to ensure at least the requested delay.
  */
 void os_task_delay_ms(uint32_t ms) {
     os_task_delay((ms * TICK_RATE_HZ + 999) / 1000);
@@ -554,6 +580,61 @@ static void scheduler_remove_task(tcb_t *task) {
         }
         prev    = current;
         current = current->next;
+    }
+}
+
+/*===========================================================================
+ * Delay queue — sorted singly-linked list (ascending wake_tick)
+ *
+ * A task occupies either the ready queue OR the delay queue, never both.
+ * The existing tcb_t::next pointer is reused since membership is exclusive.
+ *===========================================================================*/
+
+/**
+ * Insert a task into the delay queue in ascending wake_tick order.
+ * Must be called inside a critical section.
+ */
+static void delay_queue_insert(tcb_t *task) {
+    tcb_t **pp = &kernel.delay_queue;
+    /* Walk until we find the first entry whose wake_tick exceeds ours. */
+    while (*pp != NULL &&
+           (int32_t)((*pp)->wake_tick - task->wake_tick) <= 0) {
+        pp = &(*pp)->next;
+    }
+    task->next = *pp;
+    *pp = task;
+}
+
+/**
+ * Remove a specific task from the delay queue (e.g. on delete/suspend).
+ * Must be called inside a critical section.
+ */
+static void delay_queue_remove(tcb_t *task) {
+    tcb_t **pp = &kernel.delay_queue;
+    while (*pp != NULL) {
+        if (*pp == task) {
+            *pp = task->next;
+            task->next = NULL;
+            return;
+        }
+        pp = &(*pp)->next;
+    }
+}
+
+/**
+ * Wake up all tasks whose wake_tick has been reached.
+ * Called from os_scheduler() (SysTick ISR) — must be ISR-safe.
+ * Uses (int32_t) subtraction to handle tick wraparound correctly.
+ */
+static void delay_queue_tick(void) {
+    while (kernel.delay_queue != NULL &&
+           (int32_t)(kernel.tick_count - kernel.delay_queue->wake_tick) >= 0) {
+        tcb_t *task = kernel.delay_queue;
+        kernel.delay_queue = task->next;
+        task->next = NULL;
+        /* Wake the task — this also triggers PendSV if it outranks the
+         * currently running task (handled inside scheduler_add_ready_task). */
+        scheduler_add_ready_task(task);
     }
 }
 
