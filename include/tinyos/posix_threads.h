@@ -103,7 +103,8 @@ typedef struct {
 #define PTHREAD_MUTEX_RECURSIVE  1   /* Not supported; init returns ENOTSUP */
 
 #define PTHREAD_MUTEX_INITIALIZER \
-    { .locked = false, .owner = NULL, .ceiling_priority = PRIORITY_IDLE }
+    { .locked = false, .owner = NULL, .ceiling_priority = PRIORITY_IDLE, \
+      .wait_queue = NULL }
 
 int pthread_mutex_init(pthread_mutex_t *mutex,
                        const pthread_mutexattr_t *attr);

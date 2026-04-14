@@ -748,6 +748,26 @@ os_error_t os_task_reset_priority(tcb_t *task) {
 }
 
 /**
+ * Unblock a BLOCKED task and place it in the ready queue.
+ *
+ * Called by synchronisation primitives (mutex unlock, semaphore post, etc.)
+ * to wake a task that is waiting for a resource.  Uses scheduler_add_ready_task
+ * so preemption is triggered automatically if the woken task outranks the
+ * currently running task.
+ *
+ * Note: Do NOT call this for tasks in the delay queue — they have their own
+ * wakeup path via delay_queue_tick().
+ */
+void os_task_wakeup(tcb_t *task) {
+    if (task == NULL) return;
+    uint32_t cs = os_enter_critical();
+    if (task->state == TASK_STATE_BLOCKED) {
+        scheduler_add_ready_task(task);  /* sets state=READY, enqueues, may pend PendSV */
+    }
+    os_exit_critical(cs);
+}
+
+/**
  * Statistics API Implementation
  */
 

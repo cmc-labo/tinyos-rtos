@@ -15,97 +15,246 @@ static const char *cur_name(void) {
     return (t && t->name[0]) ? t->name : "?";
 }
 
+/*===========================================================================
+ * Mutex internal helpers
+ *===========================================================================*/
+
+/**
+ * Insert a task into the mutex wait queue, sorted by priority.
+ * Highest priority (lowest numeric value) goes first — it will be picked
+ * first by os_mutex_unlock().
+ * Must be called inside a critical section.
+ */
+static void mutex_wait_enqueue(mutex_t *mutex, tcb_t *task) {
+    tcb_t **pp = &mutex->wait_queue;
+    /* Walk past tasks with equal or higher priority (lower number). */
+    while (*pp != NULL && (*pp)->priority <= task->priority) {
+        pp = &(*pp)->next;
+    }
+    task->next = *pp;
+    *pp = task;
+}
+
+/**
+ * Remove a specific task from the mutex wait queue.
+ * Must be called inside a critical section.
+ */
+static void mutex_wait_dequeue(mutex_t *mutex, tcb_t *task) {
+    tcb_t **pp = &mutex->wait_queue;
+    while (*pp != NULL) {
+        if (*pp == task) {
+            *pp = task->next;
+            task->next = NULL;
+            return;
+        }
+        pp = &(*pp)->next;
+    }
+}
+
+/**
+ * Recalculate the mutex owner's inherited priority after the wait queue
+ * changes (a waiter was added, removed, or woken).
+ *
+ * Rule: owner inherits the priority of its highest-priority waiter.
+ *       If no waiters remain, the owner reverts to its base priority.
+ *
+ * Must be called inside a critical section.
+ */
+static void mutex_pip_recalculate(mutex_t *mutex) {
+    if (mutex->owner == NULL) return;
+
+    /* Head of the sorted wait queue is the highest-priority waiter. */
+    if (mutex->wait_queue != NULL) {
+        task_priority_t top = mutex->wait_queue->priority;
+        if (top < mutex->owner->priority) {
+            /* Boost owner to match the best waiter. */
+            os_task_raise_priority(mutex->owner, top);
+        }
+        /* If top >= owner->priority the owner is already at least as good;
+         * no downgrade needed here (raise_priority only ever lifts). */
+    } else {
+        /* No more waiters — restore owner to its base priority. */
+        os_task_reset_priority(mutex->owner);
+    }
+}
+
+/*===========================================================================
+ * Mutex public API
+ *===========================================================================*/
+
 /**
  * Initialize mutex
  */
 void os_mutex_init(mutex_t *mutex) {
     if (mutex == NULL) return;
 
-    mutex->locked = false;
-    mutex->owner = NULL;
+    mutex->locked           = false;
+    mutex->owner            = NULL;
     mutex->ceiling_priority = PRIORITY_IDLE;
+    mutex->wait_queue       = NULL;
 }
 
 /**
- * Lock mutex with timeout
- * Implements Priority Inheritance Protocol to prevent priority inversion
+ * Lock mutex — Priority Inheritance Protocol implementation.
+ *
+ * Fast path (mutex free): acquire immediately, O(1).
+ *
+ * Slow path (mutex held):
+ *   - OS_WAIT_FOREVER: the calling task truly blocks (state = BLOCKED).
+ *     The owner's priority is boosted to the caller's priority to prevent
+ *     priority inversion.  The task is placed on a priority-sorted wait
+ *     queue and woken directly by os_mutex_unlock() when it is next in line.
+ *
+ *   - timeout > 0: spin-loop with priority boost.  The calling task yields
+ *     each iteration so the boosted owner can make progress, and returns
+ *     OS_ERROR_TIMEOUT when the deadline is reached.
  */
 os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
-    if (mutex == NULL) {
-        return OS_ERROR_INVALID_PARAM;
+    if (mutex == NULL) return OS_ERROR_INVALID_PARAM;
+
+    tcb_t *current = os_task_get_current();
+
+    /* ── Fast path ─────────────────────────────────────────── */
+    uint32_t cs = os_enter_critical();
+    if (!mutex->locked) {
+        mutex->locked = true;
+        mutex->owner  = current;
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "mutex_lock");
+        return OS_OK;
     }
+    os_exit_critical(cs);
 
-    tcb_t *current_task = os_task_get_current();
-    uint32_t start_tick = os_get_tick_count();
+    /* ── Slow path: mutex is held ───────────────────────────── */
 
-    while (true) {
-        uint32_t state = os_enter_critical();
+    if (timeout == OS_WAIT_FOREVER) {
+        /*
+         * True blocking wait with PIP.
+         *
+         * 1. Inside critical section: boost owner, enqueue self, set BLOCKED.
+         * 2. Release critical section, yield (PendSV fires; BLOCKED → not re-enqueued).
+         * 3. Wake: os_mutex_unlock() has already made us the owner before
+         *    calling os_task_wakeup(), so we return OS_OK immediately.
+         */
+        cs = os_enter_critical();
 
-        if (!mutex->locked) {
-            /* Acquire mutex */
-            mutex->locked = true;
-            mutex->owner = current_task;
+        /* PIP: boost the owner so it can finish faster. */
+        if (current->priority < mutex->owner->priority) {
+            os_task_raise_priority(mutex->owner, current->priority);
+        }
 
-            /* Priority ceiling protocol */
-            if (mutex->owner->priority > mutex->ceiling_priority) {
-                mutex->ceiling_priority = mutex->owner->priority;
+        /* Register as waiter (sorted list, highest-priority first). */
+        mutex_wait_enqueue(mutex, current);
+        current->state = TASK_STATE_BLOCKED;
+
+        os_exit_critical(cs);
+
+        /* Give up CPU.  Because state == BLOCKED, os_pendsv_switch() will
+         * NOT re-enqueue this task — it stays off the ready queue until
+         * os_mutex_unlock() calls os_task_wakeup(). */
+        os_task_yield();
+
+        /* ── Resumed: we are now the mutex owner ── */
+        trace_record_syscall(cur_name(), "mutex_lock");
+        return OS_OK;
+
+    } else {
+        /*
+         * Timed spin-loop with PIP.
+         * Simpler implementation: keeps trying until the mutex is free or
+         * the timeout expires, boosting the owner's priority each iteration.
+         */
+        uint32_t start = os_get_tick_count();
+
+        while (true) {
+            cs = os_enter_critical();
+
+            if (!mutex->locked) {
+                mutex->locked = true;
+                mutex->owner  = current;
+                os_exit_critical(cs);
+                trace_record_syscall(cur_name(), "mutex_lock");
+                return OS_OK;
             }
 
-            os_exit_critical(state);
-            trace_record_syscall(cur_name(), "mutex_lock");
-            return OS_OK;
+            /* PIP boost each iteration in case owner's priority changed. */
+            if (current->priority < mutex->owner->priority) {
+                os_task_raise_priority(mutex->owner, current->priority);
+            }
+
+            os_exit_critical(cs);
+
+            if ((os_get_tick_count() - start) >= timeout) {
+                return OS_ERROR_TIMEOUT;
+            }
+
+            os_task_yield();
         }
-
-        /* Priority Inheritance: If owner has lower priority, boost it */
-        if (mutex->owner != NULL && current_task->priority < mutex->owner->priority) {
-            /* Temporarily raise the owner's priority to avoid priority inversion */
-            os_task_raise_priority(mutex->owner, current_task->priority);
-        }
-
-        os_exit_critical(state);
-
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-            return OS_ERROR_TIMEOUT;
-        }
-
-        /* Yield and try again */
-        os_task_yield();
     }
 }
 
 /**
- * Unlock mutex
- * Resets priority inheritance if it was applied
+ * Unlock mutex — transfers ownership to the highest-priority waiter (if any).
+ *
+ * Steps:
+ *   1. Verify caller is the owner.
+ *   2. If wait queue is non-empty:
+ *        a. Pop the highest-priority waiter (head of sorted list).
+ *        b. Transfer mutex ownership to the waiter directly.
+ *        c. Recalculate PIP for the new owner from remaining waiters.
+ *        d. Wake the waiter via os_task_wakeup() (may trigger immediate
+ *           preemption if waiter outranks us).
+ *      Else:
+ *        Release the mutex (locked = false, owner = NULL).
+ *   3. Restore our own priority to base_priority.
+ *   4. Yield so the woken (likely higher-priority) task can run.
  */
 os_error_t os_mutex_unlock(mutex_t *mutex) {
-    if (mutex == NULL) {
-        return OS_ERROR_INVALID_PARAM;
-    }
+    if (mutex == NULL) return OS_ERROR_INVALID_PARAM;
 
-    tcb_t *current_task = os_task_get_current();
+    tcb_t *current = os_task_get_current();
+    uint32_t cs = os_enter_critical();
 
-    uint32_t state = os_enter_critical();
-
-    /* Check ownership */
-    if (mutex->owner != current_task) {
-        os_exit_critical(state);
+    if (mutex->owner != current) {
+        os_exit_critical(cs);
         return OS_ERROR_PERMISSION_DENIED;
     }
 
-    /* Reset priority inheritance - restore base priority */
-    os_task_reset_priority(current_task);
+    if (mutex->wait_queue != NULL) {
+        /* Pop the highest-priority waiter (head of priority-sorted list). */
+        tcb_t *next_owner   = mutex->wait_queue;
+        mutex->wait_queue   = next_owner->next;
+        next_owner->next    = NULL;
 
-    /* Release mutex */
-    mutex->locked = false;
-    mutex->owner = NULL;
+        /* Hand over ownership BEFORE waking the waiter so that when
+         * it resumes in os_mutex_lock() it already owns the mutex. */
+        mutex->owner = next_owner;
+        /* mutex->locked stays true — ownership is transferred, not released. */
 
-    os_exit_critical(state);
+        /* Recalculate our own inherited priority now that we released.
+         * (We are no longer the owner, so pass a temporary NULL owner to
+         *  avoid touching the new owner's priority here — we'll let
+         *  mutex_pip_recalculate handle the new owner's waiters.) */
+        current->priority = current->base_priority;   /* restore ours inline */
+
+        /* Recalculate PIP for the NEW owner based on remaining waiters. */
+        mutex_pip_recalculate(mutex);
+
+        /* Wake the new owner — may pend PendSV if it outranks current. */
+        os_task_wakeup(next_owner);
+
+    } else {
+        /* No waiters: simply release. */
+        mutex->locked = false;
+        mutex->owner  = NULL;
+        current->priority = current->base_priority;   /* restore inline */
+    }
+
+    os_exit_critical(cs);
     trace_record_syscall(cur_name(), "mutex_unlk");
 
-    /* Allow other tasks to run */
+    /* Yield so the woken high-priority task (or any other) can run. */
     os_task_yield();
-
     return OS_OK;
 }
 

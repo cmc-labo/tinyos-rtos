@@ -119,9 +119,12 @@ typedef enum {
 
 /* Mutex for synchronization */
 typedef struct {
-    volatile bool locked;
-    tcb_t *owner;
+    volatile bool   locked;
+    tcb_t          *owner;
     task_priority_t ceiling_priority;
+    tcb_t          *wait_queue;  /**< Tasks blocked on this mutex, sorted by
+                                  *   priority (highest first = lowest numeric
+                                  *   value first).  Uses tcb_t::next.       */
 } mutex_t;
 
 /* Semaphore */
@@ -209,6 +212,10 @@ os_error_t os_task_raise_priority(tcb_t *task, task_priority_t new_priority);
 
 /* Reset task to base priority */
 os_error_t os_task_reset_priority(tcb_t *task);
+
+/* Unblock a BLOCKED task and place it in the ready queue.
+ * Used by synchronization primitives to wake a waiting task. */
+void os_task_wakeup(tcb_t *task);
 
 /*
  * Synchronization API
