@@ -515,119 +515,234 @@ os_error_t os_queue_receive(
 /**
  * Initialize event group
  */
+/*===========================================================================
+ * Event group internal helpers
+ *===========================================================================*/
+
+/**
+ * Returns true when the current event state satisfies a waiter's condition.
+ *
+ *   EVENT_WAIT_ALL  — every bit in mask must be set  (logical AND)
+ *   EVENT_WAIT_ANY  — at least one bit in mask is set (logical OR)
+ */
+static bool event_condition_met(uint32_t events, uint32_t mask, uint8_t opts) {
+    if (opts & EVENT_WAIT_ALL)
+        return (events & mask) == mask;   /* AND: all bits present */
+    else
+        return (events & mask) != 0;      /* OR:  any bit present  */
+}
+
+/**
+ * Walk the wait queue and wake every task whose condition is now satisfied.
+ *
+ * Called from os_event_group_set_bits() inside a critical section.
+ * For each satisfied waiter:
+ *   1. Capture the matched bits into task->event_result (before any clearing).
+ *   2. If EVENT_CLEAR_ON_EXIT: clear the waiter's full mask from the group.
+ *   3. Remove the task from the wait queue.
+ *   4. Call os_task_wakeup() — adds task to ready queue, may pend PendSV.
+ *
+ * Multiple waiters may be woken in one pass (e.g. two tasks both waiting
+ * for "any of bit-0", or tasks waiting for independent bit subsets).
+ * The loop re-reads event_group->events each iteration because a previous
+ * CLEAR_ON_EXIT wakeup may have cleared bits that affect later entries.
+ */
+static void event_group_wake_waiters(event_group_t *eg) {
+    tcb_t **pp = &eg->wait_queue;
+    while (*pp != NULL) {
+        tcb_t *t = *pp;
+        if (event_condition_met(eg->events, t->event_bits, t->event_opts)) {
+            /* Snapshot the matched bits for the waking task to read. */
+            t->event_result = eg->events & t->event_bits;
+
+            /* Auto-clear: remove the waiter's full mask from the group. */
+            if (t->event_opts & EVENT_CLEAR_ON_EXIT) {
+                eg->events &= ~t->event_bits;
+            }
+
+            /* Unlink from wait queue before waking (task->next will be
+             * reused by the ready queue once os_task_wakeup enqueues it). */
+            *pp = t->next;
+            t->next = NULL;
+
+            os_task_wakeup(t);   /* BLOCKED → READY; may trigger PendSV */
+        } else {
+            pp = &t->next;
+        }
+    }
+}
+
+/*===========================================================================
+ * Event group public API
+ *===========================================================================*/
+
 void os_event_group_init(event_group_t *event_group) {
     if (event_group == NULL) return;
-
-    event_group->events = 0;
+    event_group->events     = 0;
     event_group->wait_queue = NULL;
 }
 
 /**
- * Set event bits
- * This function sets the specified bits and wakes up any waiting tasks
+ * Set one or more event bits and wake any tasks whose conditions are now met.
+ *
+ * Safe to call from both task and ISR context.
+ * After setting bits, event_group_wake_waiters() is called inside the critical
+ * section so all satisfied waiters are identified atomically.  PendSV is pended
+ * inside os_task_wakeup() and fires after the critical section exits.
  */
 os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits) {
-    if (event_group == NULL) {
-        return OS_ERROR_INVALID_PARAM;
-    }
+    if (event_group == NULL) return OS_ERROR_INVALID_PARAM;
 
-    uint32_t state = os_enter_critical();
+    uint32_t cs = os_enter_critical();
 
-    /* Set the event bits */
     event_group->events |= bits;
 
-    os_exit_critical(state);
+    /* Wake every waiter whose AND/OR condition is now satisfied. */
+    event_group_wake_waiters(event_group);
 
-    /* Wake up tasks that might be waiting for these events */
-    os_task_yield();
-
+    os_exit_critical(cs);
     return OS_OK;
 }
 
 /**
- * Clear event bits
+ * Clear one or more event bits (does not affect waiting tasks).
  */
 os_error_t os_event_group_clear_bits(event_group_t *event_group, uint32_t bits) {
-    if (event_group == NULL) {
-        return OS_ERROR_INVALID_PARAM;
-    }
+    if (event_group == NULL) return OS_ERROR_INVALID_PARAM;
 
-    uint32_t state = os_enter_critical();
-
-    /* Clear the specified bits */
+    uint32_t cs = os_enter_critical();
     event_group->events &= ~bits;
-
-    os_exit_critical(state);
-
+    os_exit_critical(cs);
     return OS_OK;
 }
 
 /**
- * Wait for event bits
- * Supports waiting for ANY or ALL specified bits with optional auto-clear
+ * Wait for event bits — AND/OR with true blocking.
+ *
+ * @param event_group      Event group to wait on.
+ * @param bits_to_wait_for Bitmask of bits of interest.
+ * @param options          Combination of:
+ *                           EVENT_WAIT_ALL      — all bits must be set (AND)
+ *                           EVENT_WAIT_ANY      — any bit suffices   (OR)
+ *                           EVENT_CLEAR_ON_EXIT — clear the mask on wakeup
+ * @param bits_received    Out: the event bits that triggered the wakeup
+ *                         (subset of bits_to_wait_for, before any clearing).
+ *                         May be NULL.
+ * @param timeout          OS_WAIT_FOREVER (0): block indefinitely.
+ *                         N > 0: spin-loop up to N ticks before returning
+ *                         OS_ERROR_TIMEOUT.
+ *
+ * Fast path (condition already satisfied):  returns immediately, O(1).
+ *
+ * Slow path — OS_WAIT_FOREVER:
+ *   Stores the wait condition in the calling task's TCB, sets state to
+ *   BLOCKED, appends to the event group's wait_queue, then pends PendSV.
+ *   The task is woken by os_event_group_set_bits() exactly when the
+ *   condition becomes true — no polling, zero wasted CPU cycles.
+ *
+ * Slow path — finite timeout:
+ *   Spin-loop with os_task_yield() until condition is met or timeout expires.
  */
 os_error_t os_event_group_wait_bits(
     event_group_t *event_group,
-    uint32_t bits_to_wait_for,
-    uint8_t options,
-    uint32_t *bits_received,
-    uint32_t timeout
+    uint32_t       bits_to_wait_for,
+    uint8_t        options,
+    uint32_t      *bits_received,
+    uint32_t       timeout
 ) {
-    if (event_group == NULL || bits_to_wait_for == 0) {
+    if (event_group == NULL || bits_to_wait_for == 0)
         return OS_ERROR_INVALID_PARAM;
+
+    tcb_t *current = os_task_get_current();
+
+    /* ── Fast path: check without blocking ───────────────────── */
+    uint32_t cs = os_enter_critical();
+    if (event_condition_met(event_group->events, bits_to_wait_for, options)) {
+        uint32_t matched = event_group->events & bits_to_wait_for;
+        if (options & EVENT_CLEAR_ON_EXIT)
+            event_group->events &= ~bits_to_wait_for;
+        os_exit_critical(cs);
+        if (bits_received) *bits_received = matched;
+        return OS_OK;
     }
+    os_exit_critical(cs);
 
-    uint32_t start_tick = os_get_tick_count();
-    bool wait_all = (options & EVENT_WAIT_ALL) != 0;
-    bool clear_on_exit = (options & EVENT_CLEAR_ON_EXIT) != 0;
+    /* ── Slow path ────────────────────────────────────────────── */
 
-    while (true) {
-        uint32_t state = os_enter_critical();
+    if (timeout == OS_WAIT_FOREVER) {
+        /*
+         * True blocking wait.
+         *
+         * 1. Register this task's condition in its TCB.
+         * 2. Append to the event group's wait queue.
+         * 3. Set state to BLOCKED and yield — PendSV parks the task.
+         * 4. os_event_group_set_bits() wakes us when condition is met,
+         *    having already written event_result and done any clearing.
+         * 5. After resuming, read event_result and return OS_OK.
+         */
+        cs = os_enter_critical();
 
-        uint32_t current_events = event_group->events;
-        bool condition_met = wait_all
-            ? (current_events & bits_to_wait_for) == bits_to_wait_for  /* ALL bits */
-            : (current_events & bits_to_wait_for) != 0;                /* ANY bit  */
+        current->event_bits   = bits_to_wait_for;
+        current->event_opts   = options;
+        current->event_result = 0;
 
-        if (condition_met) {
-            /* Return the bits that matched */
-            if (bits_received != NULL) {
-                *bits_received = current_events & bits_to_wait_for;
-            }
+        /* Append to wait queue (simple FIFO; priority-sorted wakeup is
+         * handled by the ready queue after os_task_wakeup). */
+        tcb_t **pp = &event_group->wait_queue;
+        while (*pp != NULL) pp = &(*pp)->next;
+        *pp = current;
+        current->next = NULL;
 
-            /* Clear bits if requested */
-            if (clear_on_exit) {
-                event_group->events &= ~bits_to_wait_for;
-            }
+        current->state = TASK_STATE_BLOCKED;
 
-            os_exit_critical(state);
-            return OS_OK;
-        }
+        os_exit_critical(cs);
 
-        os_exit_critical(state);
-
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-            return OS_ERROR_TIMEOUT;
-        }
-
-        /* Yield and wait for events */
+        /* Park this task; resumed by event_group_wake_waiters(). */
         os_task_yield();
+
+        /* ── Resumed: condition was met ── */
+        if (bits_received) *bits_received = current->event_result;
+        return OS_OK;
+
+    } else {
+        /*
+         * Timed spin-loop.
+         * Yields each iteration so other tasks (including ones that will
+         * set the bits) can run.
+         */
+        uint32_t start = os_get_tick_count();
+
+        while (true) {
+            cs = os_enter_critical();
+
+            if (event_condition_met(event_group->events,
+                                    bits_to_wait_for, options)) {
+                uint32_t matched = event_group->events & bits_to_wait_for;
+                if (options & EVENT_CLEAR_ON_EXIT)
+                    event_group->events &= ~bits_to_wait_for;
+                os_exit_critical(cs);
+                if (bits_received) *bits_received = matched;
+                return OS_OK;
+            }
+
+            os_exit_critical(cs);
+
+            if ((os_get_tick_count() - start) >= timeout)
+                return OS_ERROR_TIMEOUT;
+
+            os_task_yield();
+        }
     }
 }
 
 /**
- * Get current event bits (non-blocking)
+ * Read the current event bits without blocking or modifying them.
  */
 uint32_t os_event_group_get_bits(event_group_t *event_group) {
-    if (event_group == NULL) {
-        return 0;
-    }
-
-    uint32_t state = os_enter_critical();
+    if (event_group == NULL) return 0;
+    uint32_t cs = os_enter_critical();
     uint32_t bits = event_group->events;
-    os_exit_critical(state);
-
+    os_exit_critical(cs);
     return bits;
 }
 

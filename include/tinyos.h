@@ -63,7 +63,13 @@ typedef struct task_control_block {
     uint32_t context_switches;          /* Number of context switches */
     uint32_t stack_high_water_mark;     /* Maximum stack usage (bytes) */
     uint32_t wake_tick;                 /* Tick count when delay expires (delay queue) */
-    struct task_control_block *next;    /* Next task in queue (ready or delay) */
+
+    /* Event-group wait state (valid only while task is BLOCKED on an event group) */
+    uint32_t event_bits;               /* Bit mask this task is waiting for           */
+    uint8_t  event_opts;               /* EVENT_WAIT_ALL/ANY/CLEAR_ON_EXIT flags       */
+    uint32_t event_result;             /* Bits received — written by set_bits on wake  */
+
+    struct task_control_block *next;    /* Next task in queue (ready, delay, or wait)  */
 } tcb_t;
 
 /* Task statistics */
