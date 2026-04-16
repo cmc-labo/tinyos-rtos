@@ -69,6 +69,10 @@ typedef struct task_control_block {
     uint8_t  event_opts;               /* EVENT_WAIT_ALL/ANY/CLEAR_ON_EXIT flags       */
     uint32_t event_result;             /* Bits received — written by set_bits on wake  */
 
+    /* Message-queue wait state (valid only while task is BLOCKED on a queue) */
+    const void *pending_msg;           /* Item to send — written by blocked senders    */
+    void       *recv_buf;              /* Receive buffer — written by blocked receivers */
+
     struct task_control_block *next;    /* Next task in queue (ready, delay, or wait)  */
 } tcb_t;
 
@@ -141,14 +145,33 @@ typedef struct {
 
 /* Message queue */
 typedef struct {
-    void *buffer;
-    size_t item_size;
-    size_t max_items;
+    void    *buffer;
+    size_t   item_size;
+    size_t   max_items;
     volatile size_t head;
     volatile size_t tail;
     volatile size_t count;
-    mutex_t lock;
+    /* Blocking wait queues — priority-sorted (highest priority = lowest value first) */
+    tcb_t   *sender_wait;          /**< tasks blocked because queue is full  */
+    tcb_t   *receiver_wait;        /**< tasks blocked because queue is empty */
+    /* Statistics — updated atomically inside critical sections */
+    volatile size_t   peak_count;
+    volatile uint32_t total_sent;
+    volatile uint32_t total_received;
+    volatile uint32_t overflow_count;
 } msg_queue_t;
+
+/* Message queue statistics snapshot */
+typedef struct {
+    size_t   current_count;        /**< items currently in queue                     */
+    size_t   capacity;             /**< maximum items the queue can hold              */
+    size_t   peak_count;           /**< historical high-water mark                   */
+    uint32_t total_sent;           /**< items successfully sent (cumulative)          */
+    uint32_t total_received;       /**< items successfully received (cumulative)      */
+    uint32_t overflow_count;       /**< send attempts that failed due to full/timeout */
+    uint32_t senders_waiting;      /**< tasks currently blocked waiting to send       */
+    uint32_t receivers_waiting;    /**< tasks currently blocked waiting to receive    */
+} msg_queue_stats_t;
 
 /* Event group */
 typedef struct {
@@ -285,29 +308,68 @@ os_error_t os_queue_init(
     size_t max_items
 );
 
-/* Send message to queue */
+/* Send message to back of queue (FIFO order).
+ * Blocks until space is available or timeout expires.
+ * OS_WAIT_FOREVER (0) blocks indefinitely. */
 os_error_t os_queue_send(
     msg_queue_t *queue,
     const void *item,
     uint32_t timeout
 );
 
-/* Receive message from queue */
+/* Send message to FRONT of queue (bypasses normal FIFO order).
+ * Useful for high-priority / emergency messages.
+ * Blocks on full queue same as os_queue_send(). */
+os_error_t os_queue_send_to_front(
+    msg_queue_t *queue,
+    const void *item,
+    uint32_t timeout
+);
+
+/* Non-blocking send — returns OS_ERROR_NO_RESOURCE immediately if full. */
+os_error_t os_queue_send_try(msg_queue_t *queue, const void *item);
+
+/* Receive message from queue.
+ * Blocks until an item is available or timeout expires.
+ * OS_WAIT_FOREVER (0) blocks indefinitely. */
 os_error_t os_queue_receive(
     msg_queue_t *queue,
     void *item,
     uint32_t timeout
 );
 
-/* Peek at front item without consuming it */
+/* Non-blocking receive — returns OS_ERROR_NO_RESOURCE immediately if empty. */
+os_error_t os_queue_receive_try(msg_queue_t *queue, void *item);
+
+/* Peek at front item without consuming it.
+ * Blocks (spin-yield) until an item is available or timeout expires. */
 os_error_t os_queue_peek(
     msg_queue_t *queue,
     void *item,
     uint32_t timeout
 );
 
+/* Discard all items in the queue.
+ * Wakes any blocked senders (their messages fill the now-empty queue). */
+os_error_t os_queue_flush(msg_queue_t *queue);
+
 /* Get number of items currently in the queue (non-blocking) */
 size_t os_queue_get_count(msg_queue_t *queue);
+
+/* Get maximum item capacity of the queue (non-blocking) */
+size_t os_queue_get_capacity(msg_queue_t *queue);
+
+/* Return true if the queue currently has no items */
+bool os_queue_is_empty(msg_queue_t *queue);
+
+/* Return true if the queue is at maximum capacity */
+bool os_queue_is_full(msg_queue_t *queue);
+
+/* Get a snapshot of queue statistics */
+os_error_t os_queue_get_stats(msg_queue_t *queue, msg_queue_stats_t *stats);
+
+/* Reset cumulative statistics (peak_count, total_sent, total_received, overflow_count) */
+os_error_t os_queue_reset_stats(msg_queue_t *queue);
 
 /*
  * Condition Variable API

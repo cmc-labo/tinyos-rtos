@@ -334,8 +334,239 @@ os_error_t os_semaphore_post(semaphore_t *sem) {
     return OS_OK;
 }
 
+/*===========================================================================
+ * Message queue internal helpers
+ *===========================================================================*/
+
 /**
- * Initialize message queue
+ * Insert a task into a priority-sorted wait queue.
+ * Highest priority (lowest numeric value) is placed first.
+ * Must be called inside a critical section.
+ */
+static void queue_wait_enqueue(tcb_t **head, tcb_t *task) {
+    tcb_t **pp = head;
+    while (*pp != NULL && (*pp)->priority <= task->priority)
+        pp = &(*pp)->next;
+    task->next = *pp;
+    *pp = task;
+}
+
+/**
+ * Count tasks in a wait queue.
+ * Must be called inside a critical section.
+ */
+static uint32_t queue_wait_count(const tcb_t *head) {
+    uint32_t n = 0;
+    while (head) { n++; head = head->next; }
+    return n;
+}
+
+/**
+ * Enqueue an item at the TAIL of the circular buffer.
+ * Caller must hold a critical section and verify count < max_items.
+ */
+static void queue_buf_push_back(msg_queue_t *q, const void *item) {
+    uint8_t *dest = (uint8_t *)q->buffer + q->tail * q->item_size;
+    memcpy(dest, item, q->item_size);
+    q->tail = (q->tail + 1) % q->max_items;
+    q->count++;
+    q->total_sent++;
+    if (q->count > q->peak_count) q->peak_count = q->count;
+}
+
+/**
+ * Enqueue an item at the FRONT (head) of the circular buffer.
+ * Caller must hold a critical section and verify count < max_items.
+ */
+static void queue_buf_push_front(msg_queue_t *q, const void *item) {
+    q->head = (q->head + q->max_items - 1) % q->max_items;
+    uint8_t *dest = (uint8_t *)q->buffer + q->head * q->item_size;
+    memcpy(dest, item, q->item_size);
+    q->count++;
+    q->total_sent++;
+    if (q->count > q->peak_count) q->peak_count = q->count;
+}
+
+/**
+ * Dequeue an item from the HEAD of the circular buffer.
+ * Caller must hold a critical section and verify count > 0.
+ */
+static void queue_buf_pop(msg_queue_t *q, void *item) {
+    const uint8_t *src = (const uint8_t *)q->buffer + q->head * q->item_size;
+    memcpy(item, src, q->item_size);
+    q->head = (q->head + 1) % q->max_items;
+    q->count--;
+    q->total_received++;
+}
+
+/**
+ * After inserting an item, wake the highest-priority blocked receiver (if any)
+ * via direct delivery: copy item from queue head to receiver's recv_buf.
+ *
+ * Must be called inside a critical section, immediately after inserting an item.
+ */
+static void queue_wake_receiver(msg_queue_t *q) {
+    if (q->receiver_wait == NULL) return;
+
+    tcb_t *receiver    = q->receiver_wait;
+    q->receiver_wait   = receiver->next;
+    receiver->next     = NULL;
+
+    /* Direct delivery: copy the item that was just inserted (now at tail-1)
+     * from the buffer to the receiver's pre-registered buffer, then remove
+     * it from the circular buffer so the receiver doesn't double-count. */
+    q->tail = (q->tail + q->max_items - 1) % q->max_items;
+    q->count--;
+    /* Note: total_sent was already incremented by queue_buf_push_*; undo the
+     * total_received that queue_buf_pop would add — we account here manually. */
+    const uint8_t *src = (const uint8_t *)q->buffer + q->tail * q->item_size;
+    memcpy(receiver->recv_buf, src, q->item_size);
+    receiver->recv_buf = NULL;
+    q->total_received++;
+
+    os_task_wakeup(receiver);
+}
+
+/**
+ * After removing an item, wake the highest-priority blocked sender (if any)
+ * by copying its pending_msg into the queue.
+ *
+ * Must be called inside a critical section, immediately after removing an item.
+ */
+static void queue_wake_sender(msg_queue_t *q) {
+    if (q->sender_wait == NULL) return;
+    if (q->count >= q->max_items) return;  /* still no room (shouldn't happen) */
+
+    tcb_t *sender    = q->sender_wait;
+    q->sender_wait   = sender->next;
+    sender->next     = NULL;
+
+    queue_buf_push_back(q, sender->pending_msg);
+    sender->pending_msg = NULL;
+
+    os_task_wakeup(sender);
+}
+
+/*===========================================================================
+ * Core blocking helper shared by send and send_to_front
+ *===========================================================================*/
+
+typedef enum { QUEUE_SEND_BACK, QUEUE_SEND_FRONT } queue_send_pos_t;
+
+/**
+ * Internal implementation for os_queue_send / os_queue_send_to_front.
+ *
+ * Fast path (space available):
+ *   - Enqueue at back or front.
+ *   - If a receiver is waiting, deliver directly and wake it.
+ *   - Return OS_OK.
+ *
+ * Slow path — OS_WAIT_FOREVER:
+ *   - Store item pointer in TCB (pending_msg).
+ *   - Enqueue self in priority-sorted sender_wait.
+ *   - Set state = BLOCKED, yield.
+ *   - The receiver that wakes us has already copied our message and woken us.
+ *   - Return OS_OK.
+ *
+ * Slow path — finite timeout:
+ *   - Spin-yield with timeout check (no true blocking to keep code simple).
+ *
+ * Non-blocking (try): caller passes timeout = OS_WAIT_FOREVER but sets a
+ * separate flag — handled by the public wrappers, not this function.
+ */
+static os_error_t queue_send_impl(
+    msg_queue_t      *queue,
+    const void       *item,
+    uint32_t          timeout,
+    queue_send_pos_t  pos
+) {
+    if (queue == NULL || item == NULL) return OS_ERROR_INVALID_PARAM;
+
+    tcb_t *current = os_task_get_current();
+
+    uint32_t cs = os_enter_critical();
+
+    /* ── Fast path: space available ─────────────────────────── */
+    if (queue->count < queue->max_items) {
+        if (pos == QUEUE_SEND_FRONT)
+            queue_buf_push_front(queue, item);
+        else
+            queue_buf_push_back(queue, item);
+
+        /* Wake a blocked receiver via direct delivery if one is waiting. */
+        queue_wake_receiver(queue);
+
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "q_send");
+        return OS_OK;
+    }
+
+    /* ── Slow path: queue full ───────────────────────────────── */
+    queue->overflow_count++;
+
+    if (timeout == OS_WAIT_FOREVER && current != NULL) {
+        /* True blocking wait.
+         * 1. Record the item pointer so the receiver can copy it.
+         * 2. Enqueue self in priority-sorted sender_wait.
+         * 3. Set BLOCKED and yield — kernel parks this task.
+         * 4. When receiver dequeues, it calls queue_wake_sender() which
+         *    copies pending_msg, wakes us.  We return OS_OK on resume. */
+        current->pending_msg = item;
+        queue_wait_enqueue(&queue->sender_wait, current);
+        current->state = TASK_STATE_BLOCKED;
+
+        os_exit_critical(cs);
+        os_task_yield();  /* won't return until receiver wakes us */
+
+        /* overflow_count was pre-incremented above; undo it since the
+         * send ultimately succeeded. */
+        cs = os_enter_critical();
+        if (queue->overflow_count > 0) queue->overflow_count--;
+        os_exit_critical(cs);
+
+        trace_record_syscall(cur_name(), "q_send");
+        return OS_OK;
+
+    } else if (timeout > 0) {
+        /* Timed spin-yield. */
+        uint32_t start = os_get_tick_count();
+        os_exit_critical(cs);
+
+        while (true) {
+            cs = os_enter_critical();
+            if (queue->count < queue->max_items) {
+                if (pos == QUEUE_SEND_FRONT)
+                    queue_buf_push_front(queue, item);
+                else
+                    queue_buf_push_back(queue, item);
+                queue_wake_receiver(queue);
+                /* Succeeded: undo pre-incremented overflow counter. */
+                if (queue->overflow_count > 0) queue->overflow_count--;
+                os_exit_critical(cs);
+                trace_record_syscall(cur_name(), "q_send");
+                return OS_OK;
+            }
+            os_exit_critical(cs);
+
+            if ((os_get_tick_count() - start) >= timeout)
+                return OS_ERROR_TIMEOUT;
+
+            os_task_delay(1);
+        }
+    } else {
+        /* timeout == 0 and not WAIT_FOREVER: non-blocking, fail immediately. */
+        os_exit_critical(cs);
+        return OS_ERROR_NO_RESOURCE;
+    }
+}
+
+/*===========================================================================
+ * Message queue public API
+ *===========================================================================*/
+
+/**
+ * Initialize message queue.
+ * The caller supplies the storage buffer; the queue itself is zero-allocation.
  */
 os_error_t os_queue_init(
     msg_queue_t *queue,
@@ -343,169 +574,316 @@ os_error_t os_queue_init(
     size_t item_size,
     size_t max_items
 ) {
-    if (queue == NULL || buffer == NULL || item_size == 0 || max_items == 0) {
+    if (queue == NULL || buffer == NULL || item_size == 0 || max_items == 0)
         return OS_ERROR_INVALID_PARAM;
-    }
 
-    queue->buffer = buffer;
-    queue->item_size = item_size;
-    queue->max_items = max_items;
-    queue->head = 0;
-    queue->tail = 0;
-    queue->count = 0;
-
-    os_mutex_init(&queue->lock);
+    queue->buffer         = buffer;
+    queue->item_size      = item_size;
+    queue->max_items      = max_items;
+    queue->head           = 0;
+    queue->tail           = 0;
+    queue->count          = 0;
+    queue->sender_wait    = NULL;
+    queue->receiver_wait  = NULL;
+    queue->peak_count     = 0;
+    queue->total_sent     = 0;
+    queue->total_received = 0;
+    queue->overflow_count = 0;
 
     return OS_OK;
 }
 
 /**
- * Send message to queue
+ * Send message to the back of the queue (normal FIFO order).
+ * Blocks if full.  OS_WAIT_FOREVER (0) blocks indefinitely.
  */
 os_error_t os_queue_send(
     msg_queue_t *queue,
     const void *item,
     uint32_t timeout
 ) {
-    if (queue == NULL || item == NULL) {
-        return OS_ERROR_INVALID_PARAM;
-    }
-
-    uint32_t start_tick = os_get_tick_count();
-
-    while (true) {
-        os_error_t err = os_mutex_lock(&queue->lock, 10);
-        if (err != OS_OK) {
-            if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-                return OS_ERROR_TIMEOUT;
-            }
-            continue;
-        }
-
-        if (queue->count < queue->max_items) {
-            /* Copy item to queue */
-            uint8_t *dest = (uint8_t *)queue->buffer + (queue->tail * queue->item_size);
-            memcpy(dest, item, queue->item_size);
-
-            queue->tail = (queue->tail + 1) % queue->max_items;
-            queue->count++;
-
-            os_mutex_unlock(&queue->lock);
-            return OS_OK;
-        }
-
-        os_mutex_unlock(&queue->lock);
-
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-            return OS_ERROR_TIMEOUT;
-        }
-
-        /* Queue full, yield and retry */
-        os_task_delay(1);
-    }
+    return queue_send_impl(queue, item, timeout, QUEUE_SEND_BACK);
 }
 
 /**
- * Peek at the front of the queue without consuming the item.
- * Blocks until an item is available or the timeout expires.
+ * Send message to the FRONT of the queue, bypassing FIFO order.
+ * Useful for high-priority / control messages.
+ * Blocking behaviour is identical to os_queue_send().
  */
-os_error_t os_queue_peek(msg_queue_t *queue, void *item, uint32_t timeout) {
-    if (queue == NULL || item == NULL) {
-        return OS_ERROR_INVALID_PARAM;
-    }
-
-    uint32_t start_tick = os_get_tick_count();
-
-    while (true) {
-        os_error_t err = os_mutex_lock(&queue->lock, 10);
-        if (err != OS_OK) {
-            if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-                return OS_ERROR_TIMEOUT;
-            }
-            continue;
-        }
-
-        if (queue->count > 0) {
-            /* Copy the front item WITHOUT advancing head or decrementing count */
-            const uint8_t *src = (const uint8_t *)queue->buffer +
-                                 (queue->head * queue->item_size);
-            memcpy(item, src, queue->item_size);
-            os_mutex_unlock(&queue->lock);
-            return OS_OK;
-        }
-
-        os_mutex_unlock(&queue->lock);
-
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-            return OS_ERROR_TIMEOUT;
-        }
-
-        os_task_delay(1);
-    }
+os_error_t os_queue_send_to_front(
+    msg_queue_t *queue,
+    const void *item,
+    uint32_t timeout
+) {
+    return queue_send_impl(queue, item, timeout, QUEUE_SEND_FRONT);
 }
 
 /**
- * Get current number of items in the queue (non-blocking query)
+ * Non-blocking send.
+ * Returns OS_ERROR_NO_RESOURCE immediately if the queue is full.
  */
-size_t os_queue_get_count(msg_queue_t *queue) {
-    if (queue == NULL) {
-        return 0;
+os_error_t os_queue_send_try(msg_queue_t *queue, const void *item) {
+    if (queue == NULL || item == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t cs = os_enter_critical();
+
+    if (queue->count < queue->max_items) {
+        queue_buf_push_back(queue, item);
+        queue_wake_receiver(queue);
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "q_send_try");
+        return OS_OK;
     }
 
-    uint32_t state = os_enter_critical();
-    size_t count = queue->count;
-    os_exit_critical(state);
-
-    return count;
+    queue->overflow_count++;
+    os_exit_critical(cs);
+    return OS_ERROR_NO_RESOURCE;
 }
 
 /**
- * Receive message from queue
+ * Receive message from the queue.
+ * Blocks if empty.  OS_WAIT_FOREVER (0) blocks indefinitely.
+ *
+ * True blocking path (OS_WAIT_FOREVER):
+ *   - Store recv_buf in TCB.
+ *   - Enqueue self in priority-sorted receiver_wait.
+ *   - Set BLOCKED, yield.
+ *   - On wake, the sender has already written directly into recv_buf.
+ *   - Return OS_OK.
  */
 os_error_t os_queue_receive(
     msg_queue_t *queue,
     void *item,
     uint32_t timeout
 ) {
-    if (queue == NULL || item == NULL) {
-        return OS_ERROR_INVALID_PARAM;
+    if (queue == NULL || item == NULL) return OS_ERROR_INVALID_PARAM;
+
+    tcb_t *current = os_task_get_current();
+
+    uint32_t cs = os_enter_critical();
+
+    /* ── Fast path: item available ───────────────────────────── */
+    if (queue->count > 0) {
+        queue_buf_pop(queue, item);
+
+        /* Let the highest-priority blocked sender fill the freed slot. */
+        queue_wake_sender(queue);
+
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "q_recv");
+        return OS_OK;
     }
+
+    /* ── Slow path: queue empty ──────────────────────────────── */
+
+    if (timeout == OS_WAIT_FOREVER && current != NULL) {
+        /* True blocking wait.
+         * Sender will deliver directly into recv_buf before calling wakeup. */
+        current->recv_buf = item;
+        queue_wait_enqueue(&queue->receiver_wait, current);
+        current->state = TASK_STATE_BLOCKED;
+
+        os_exit_critical(cs);
+        os_task_yield();  /* won't return until sender wakes us */
+
+        trace_record_syscall(cur_name(), "q_recv");
+        return OS_OK;
+
+    } else if (timeout > 0) {
+        /* Timed spin-yield. */
+        uint32_t start = os_get_tick_count();
+        os_exit_critical(cs);
+
+        while (true) {
+            cs = os_enter_critical();
+            if (queue->count > 0) {
+                queue_buf_pop(queue, item);
+                queue_wake_sender(queue);
+                os_exit_critical(cs);
+                trace_record_syscall(cur_name(), "q_recv");
+                return OS_OK;
+            }
+            os_exit_critical(cs);
+
+            if ((os_get_tick_count() - start) >= timeout)
+                return OS_ERROR_TIMEOUT;
+
+            os_task_delay(1);
+        }
+    } else {
+        /* Non-blocking path (timeout == 0, treated as try). */
+        os_exit_critical(cs);
+        return OS_ERROR_NO_RESOURCE;
+    }
+}
+
+/**
+ * Non-blocking receive.
+ * Returns OS_ERROR_NO_RESOURCE immediately if the queue is empty.
+ */
+os_error_t os_queue_receive_try(msg_queue_t *queue, void *item) {
+    if (queue == NULL || item == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t cs = os_enter_critical();
+
+    if (queue->count > 0) {
+        queue_buf_pop(queue, item);
+        queue_wake_sender(queue);
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "q_recv_try");
+        return OS_OK;
+    }
+
+    os_exit_critical(cs);
+    return OS_ERROR_NO_RESOURCE;
+}
+
+/**
+ * Peek at the front item without consuming it.
+ * Uses a spin-yield loop; does not truly block the task.
+ */
+os_error_t os_queue_peek(msg_queue_t *queue, void *item, uint32_t timeout) {
+    if (queue == NULL || item == NULL) return OS_ERROR_INVALID_PARAM;
 
     uint32_t start_tick = os_get_tick_count();
 
     while (true) {
-        os_error_t err = os_mutex_lock(&queue->lock, 10);
-        if (err != OS_OK) {
-            if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-                return OS_ERROR_TIMEOUT;
-            }
-            continue;
-        }
+        uint32_t cs = os_enter_critical();
 
         if (queue->count > 0) {
-            /* Copy item from queue */
-            uint8_t *src = (uint8_t *)queue->buffer + (queue->head * queue->item_size);
+            const uint8_t *src = (const uint8_t *)queue->buffer +
+                                 queue->head * queue->item_size;
             memcpy(item, src, queue->item_size);
-
-            queue->head = (queue->head + 1) % queue->max_items;
-            queue->count--;
-
-            os_mutex_unlock(&queue->lock);
+            os_exit_critical(cs);
             return OS_OK;
         }
 
-        os_mutex_unlock(&queue->lock);
+        os_exit_critical(cs);
 
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
+        if (timeout == 0) return OS_ERROR_NO_RESOURCE;
+        if (timeout != OS_WAIT_FOREVER &&
+            (os_get_tick_count() - start_tick) >= timeout)
             return OS_ERROR_TIMEOUT;
-        }
 
-        /* Queue empty, yield and retry */
         os_task_delay(1);
     }
+}
+
+/**
+ * Flush all items from the queue.
+ * Blocked senders' messages are enqueued (up to capacity) and those tasks
+ * are woken.  Remaining blocked receivers stay blocked.
+ */
+os_error_t os_queue_flush(msg_queue_t *queue) {
+    if (queue == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t cs = os_enter_critical();
+
+    /* Discard all buffered items. */
+    queue->head  = 0;
+    queue->tail  = 0;
+    queue->count = 0;
+
+    /* Accept pending sender messages into the now-empty queue. */
+    while (queue->sender_wait != NULL && queue->count < queue->max_items) {
+        tcb_t *sender    = queue->sender_wait;
+        queue->sender_wait = sender->next;
+        sender->next     = NULL;
+
+        queue_buf_push_back(queue, sender->pending_msg);
+        sender->pending_msg = NULL;
+
+        os_task_wakeup(sender);
+    }
+
+    os_exit_critical(cs);
+    return OS_OK;
+}
+
+/**
+ * Get the number of items currently in the queue (non-blocking).
+ */
+size_t os_queue_get_count(msg_queue_t *queue) {
+    if (queue == NULL) return 0;
+
+    uint32_t cs = os_enter_critical();
+    size_t count = queue->count;
+    os_exit_critical(cs);
+
+    return count;
+}
+
+/**
+ * Get the maximum item capacity of the queue (non-blocking).
+ */
+size_t os_queue_get_capacity(msg_queue_t *queue) {
+    if (queue == NULL) return 0;
+    return queue->max_items;  /* immutable after init */
+}
+
+/**
+ * Return true if the queue currently holds no items.
+ */
+bool os_queue_is_empty(msg_queue_t *queue) {
+    if (queue == NULL) return true;
+
+    uint32_t cs = os_enter_critical();
+    bool empty = (queue->count == 0);
+    os_exit_critical(cs);
+
+    return empty;
+}
+
+/**
+ * Return true if the queue is at full capacity.
+ */
+bool os_queue_is_full(msg_queue_t *queue) {
+    if (queue == NULL) return false;
+
+    uint32_t cs = os_enter_critical();
+    bool full = (queue->count >= queue->max_items);
+    os_exit_critical(cs);
+
+    return full;
+}
+
+/**
+ * Fill a stats snapshot atomically.
+ */
+os_error_t os_queue_get_stats(msg_queue_t *queue, msg_queue_stats_t *stats) {
+    if (queue == NULL || stats == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t cs = os_enter_critical();
+
+    stats->current_count     = queue->count;
+    stats->capacity          = queue->max_items;
+    stats->peak_count        = queue->peak_count;
+    stats->total_sent        = queue->total_sent;
+    stats->total_received    = queue->total_received;
+    stats->overflow_count    = queue->overflow_count;
+    stats->senders_waiting   = queue_wait_count(queue->sender_wait);
+    stats->receivers_waiting = queue_wait_count(queue->receiver_wait);
+
+    os_exit_critical(cs);
+    return OS_OK;
+}
+
+/**
+ * Reset cumulative statistics counters.
+ * Does not affect the current item count or waiting tasks.
+ */
+os_error_t os_queue_reset_stats(msg_queue_t *queue) {
+    if (queue == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t cs = os_enter_critical();
+
+    queue->peak_count     = queue->count;  /* reset HWM to current level */
+    queue->total_sent     = 0;
+    queue->total_received = 0;
+    queue->overflow_count = 0;
+
+    os_exit_critical(cs);
+    return OS_OK;
 }
 
 /**
