@@ -46,6 +46,7 @@ static struct {
     uint32_t ready_bitmap[8];     /* Bitmap: bit set = that priority has ready task */
     tcb_t *delay_queue;           /* Singly-linked list sorted by wake_tick ASC  */
     tcb_t task_pool[MAX_TASKS];
+    tcb_t *task_registry[MAX_TASKS]; /* Flat list of all live task pointers */
     uint8_t task_count;
     volatile uint32_t tick_count;
     volatile uint32_t context_switch_count;
@@ -74,6 +75,9 @@ static void idle_task(void *param) {
  */
 void os_init(void) {
     memset(&kernel, 0, sizeof(kernel));
+
+    /* Initialize software timer subsystem */
+    os_timer_init();
 
     /* Create idle task */
     os_task_create(
@@ -341,6 +345,14 @@ os_error_t os_task_create(
 
     task->stack_ptr = stack_top;
 
+    /* Register in flat task registry for iteration (ps, top, kill commands). */
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (kernel.task_registry[i] == NULL) {
+            kernel.task_registry[i] = task;
+            break;
+        }
+    }
+
     /* Add to ready queue */
     scheduler_add_ready_task(task);
     kernel.task_count++;
@@ -367,6 +379,15 @@ os_error_t os_task_delete(tcb_t *task) {
     scheduler_remove_task(task);
     delay_queue_remove(task);
     task->state = TASK_STATE_TERMINATED;
+
+    /* Remove from registry */
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (kernel.task_registry[i] == task) {
+            kernel.task_registry[i] = NULL;
+            break;
+        }
+    }
+
     kernel.task_count--;
 
     /* If deleting current task, trigger scheduler */
@@ -924,6 +945,35 @@ void os_print_task_stats(tcb_t *task) {
     /* Note: In embedded systems without printf, this would use UART output */
     /* For now, we'll leave the implementation as a stub */
     (void)state_str;  /* Suppress unused warning */
+}
+
+/**
+ * Get task statistics by zero-based index into the live task registry.
+ */
+os_error_t os_task_get_stats_by_index(uint32_t index, task_stats_t *stats) {
+    if (stats == NULL) return OS_ERROR_INVALID_PARAM;
+
+    uint32_t count = 0;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        tcb_t *task = kernel.task_registry[i];
+        if (task == NULL || task->state == TASK_STATE_TERMINATED) continue;
+        if (count == index) return os_task_get_stats(task, stats);
+        count++;
+    }
+    return OS_ERROR;
+}
+
+/**
+ * Find a live task by name.  Returns NULL if not found.
+ */
+tcb_t *os_task_find_by_name(const char *name) {
+    if (name == NULL) return NULL;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        tcb_t *task = kernel.task_registry[i];
+        if (task == NULL || task->state == TASK_STATE_TERMINATED) continue;
+        if (strcmp(task->name, name) == 0) return task;
+    }
+    return NULL;
 }
 
 /**

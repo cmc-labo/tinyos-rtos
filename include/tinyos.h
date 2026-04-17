@@ -391,6 +391,9 @@ os_error_t os_cond_broadcast(cond_var_t *cond);
  * Memory Management API
  */
 
+/* Initialize memory management (call once before os_malloc/os_free) */
+void os_mem_init(void);
+
 /* Allocate memory */
 void *os_malloc(size_t size);
 
@@ -473,6 +476,9 @@ typedef struct software_timer {
     void *callback_param;             /* Callback parameter */
     struct software_timer *next;      /* Next timer in list */
 } timer_t;
+
+/* Initialize the software timer subsystem (called automatically by os_init) */
+void os_timer_init(void);
 
 /* Create a software timer */
 os_error_t os_timer_create(
