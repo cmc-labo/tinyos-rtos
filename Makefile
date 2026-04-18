@@ -195,6 +195,9 @@ example-tls:
 example-shell:
 	$(MAKE) EXAMPLE=shell_demo
 
+example-stdio:
+	$(MAKE) EXAMPLE=stdio_uart_demo
+
 # Help
 help:
 	@echo "TinyOS Build System"
