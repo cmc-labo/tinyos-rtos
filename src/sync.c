@@ -900,14 +900,23 @@ os_error_t os_queue_reset_stats(msg_queue_t *queue) {
 /**
  * Returns true when the current event state satisfies a waiter's condition.
  *
- *   EVENT_WAIT_ALL  — every bit in mask must be set  (logical AND)
- *   EVENT_WAIT_ANY  — at least one bit in mask is set (logical OR)
+ *   EVENT_WAIT_ALL              — every bit in mask must be SET   (AND)
+ *   EVENT_WAIT_ANY              — at least one bit in mask is SET (OR)
+ *   EVENT_WAIT_CLEAR | ALL      — every bit in mask must be CLEAR (AND-NOT)
+ *   EVENT_WAIT_CLEAR | ANY      — at least one bit in mask is CLEAR (OR-NOT)
  */
 static bool event_condition_met(uint32_t events, uint32_t mask, uint8_t opts) {
+    if (opts & EVENT_WAIT_CLEAR) {
+        /* Inverted sense: check for bits being 0. */
+        if (opts & EVENT_WAIT_ALL)
+            return (events & mask) == 0;        /* AND-NOT: all bits clear */
+        else
+            return (events & mask) != mask;     /* OR-NOT:  any bit  clear */
+    }
     if (opts & EVENT_WAIT_ALL)
-        return (events & mask) == mask;   /* AND: all bits present */
+        return (events & mask) == mask;         /* AND: all bits set */
     else
-        return (events & mask) != 0;      /* OR:  any bit present  */
+        return (events & mask) != 0;            /* OR:  any bit  set */
 }
 
 /**
@@ -933,8 +942,11 @@ static void event_group_wake_waiters(event_group_t *eg) {
             /* Snapshot the matched bits for the waking task to read. */
             t->event_result = eg->events & t->event_bits;
 
-            /* Auto-clear: remove the waiter's full mask from the group. */
-            if (t->event_opts & EVENT_CLEAR_ON_EXIT) {
+            /* Auto-clear: only meaningful when waiting for bits to be SET.
+             * Clearing bits that are already 0 (WAIT_CLEAR case) is a no-op
+             * and would mislead readers, so we skip it. */
+            if ((t->event_opts & EVENT_CLEAR_ON_EXIT) &&
+                !(t->event_opts & EVENT_WAIT_CLEAR)) {
                 eg->events &= ~t->event_bits;
             }
 
@@ -983,13 +995,18 @@ os_error_t os_event_group_set_bits(event_group_t *event_group, uint32_t bits) {
 }
 
 /**
- * Clear one or more event bits (does not affect waiting tasks).
+ * Clear one or more event bits.
+ *
+ * After clearing, event_group_wake_waiters() is called so that any task
+ * blocking with EVENT_WAIT_CLEAR whose condition is now satisfied is woken.
  */
 os_error_t os_event_group_clear_bits(event_group_t *event_group, uint32_t bits) {
     if (event_group == NULL) return OS_ERROR_INVALID_PARAM;
 
     uint32_t cs = os_enter_critical();
     event_group->events &= ~bits;
+    /* Clearing bits may satisfy tasks waiting for bits to become CLEAR. */
+    event_group_wake_waiters(event_group);
     os_exit_critical(cs);
     return OS_OK;
 }
@@ -1111,6 +1128,42 @@ os_error_t os_event_group_wait_bits(
             os_task_yield();
         }
     }
+}
+
+/**
+ * Rendezvous (barrier) synchronization.
+ *
+ * Atomically sets @bits_to_set and waits (AND condition) until every bit in
+ * @bits_to_wait_for is set.  Once the last participant arrives all blocked
+ * tasks are released simultaneously.
+ *
+ * Bits are NOT cleared on exit — use os_event_group_clear_bits() afterwards
+ * if the barrier needs to be reused.
+ */
+os_error_t os_event_group_sync(
+    event_group_t *event_group,
+    uint32_t bits_to_set,
+    uint32_t bits_to_wait_for,
+    uint32_t timeout
+) {
+    if (event_group == NULL || bits_to_wait_for == 0)
+        return OS_ERROR_INVALID_PARAM;
+
+    /* Set this task's arrival bit and wake any waiters that are now satisfied. */
+    uint32_t cs = os_enter_critical();
+    event_group->events |= bits_to_set;
+    event_group_wake_waiters(event_group);
+    os_exit_critical(cs);
+
+    /* Wait for the full participant set (no auto-clear — every task must see it). */
+    uint32_t dummy;
+    return os_event_group_wait_bits(
+        event_group,
+        bits_to_wait_for,
+        EVENT_WAIT_ALL,   /* AND: all participant bits must be set */
+        &dummy,
+        timeout
+    );
 }
 
 /**

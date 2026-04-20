@@ -180,9 +180,13 @@ typedef struct {
 } event_group_t;
 
 /* Event group wait options */
-#define EVENT_WAIT_ALL    0x01    /* Wait for all specified bits */
-#define EVENT_WAIT_ANY    0x02    /* Wait for any specified bit */
-#define EVENT_CLEAR_ON_EXIT 0x04  /* Clear bits after waking up */
+#define EVENT_WAIT_ALL      0x01  /* Wait for all specified bits to be SET   (AND) */
+#define EVENT_WAIT_ANY      0x02  /* Wait for any  specified bit  to be SET   (OR) */
+#define EVENT_CLEAR_ON_EXIT 0x04  /* Clear the waited bits atomically on wakeup    */
+#define EVENT_WAIT_CLEAR    0x08  /* Invert sense: wait for bits to be CLEAR  (NOT)
+                                   * With EVENT_WAIT_ALL: all bits must be 0
+                                   * With EVENT_WAIT_ANY: at least one bit is 0
+                                   * EVENT_CLEAR_ON_EXIT is ignored with this flag  */
 
 /* Condition variable */
 typedef struct {
@@ -295,6 +299,34 @@ os_error_t os_event_group_wait_bits(
 
 /* Get current event bits */
 uint32_t os_event_group_get_bits(event_group_t *event_group);
+
+/**
+ * Rendezvous (barrier) synchronization.
+ *
+ * Atomically sets @bits_to_set in the event group and then blocks until
+ * ALL bits in @bits_to_wait_for are set — i.e. until every participant has
+ * called this function and set its own contribution bit.
+ *
+ * Typical use: each of N tasks sets a unique bit and waits for the union of
+ * all N bits.  All tasks are released simultaneously once the last one arrives.
+ *
+ * Bits are NOT cleared on exit so every participant can observe the full set.
+ * The caller is responsible for clearing bits afterwards if the barrier needs
+ * to be reused.
+ *
+ * @param event_group      Event group used as the barrier.
+ * @param bits_to_set      Bit(s) this task contributes (its "arrived" signal).
+ * @param bits_to_wait_for All bits that must be set before proceeding
+ *                         (usually the union of every participant's bit).
+ * @param timeout          OS_WAIT_FOREVER (0): block indefinitely.
+ *                         N > 0: return OS_ERROR_TIMEOUT after N ticks.
+ */
+os_error_t os_event_group_sync(
+    event_group_t *event_group,
+    uint32_t bits_to_set,
+    uint32_t bits_to_wait_for,
+    uint32_t timeout
+);
 
 /*
  * Message Queue API
