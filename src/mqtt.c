@@ -691,7 +691,7 @@ static void do_reconnect(mqtt_client_t *c) {
  * Topic wildcard matching
  * ========================================================================= */
 
-static bool topic_matches(const char *sub, const char *topic) {
+__attribute__((unused)) static bool topic_matches(const char *sub, const char *topic) {
     const char *s = sub, *t = topic;
     while (*s && *t) {
         if (*s == '#') return true;
@@ -707,8 +707,6 @@ static bool topic_matches(const char *sub, const char *topic) {
     }
     return (*s == '\0' && *t == '\0');
 }
-(void)topic_matches;  /* used indirectly; suppress unused-function warning */
-
 /* =========================================================================
  * Background task
  * ========================================================================= */

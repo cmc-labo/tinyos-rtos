@@ -212,7 +212,7 @@ int coap_pdu_encode(const coap_pdu_t *pdu, uint8_t *buffer, size_t buffer_size) 
 
     /* Payload */
     if (pdu->payload_length > 0) {
-        if (remaining < 1 + pdu->payload_length) {
+        if (remaining < (size_t)(1 + pdu->payload_length)) {
             return -1;
         }
         *ptr++ = COAP_PAYLOAD_MARKER;
@@ -331,7 +331,7 @@ coap_error_t coap_start(coap_context_t *context) {
 
     /* Bind socket */
     sockaddr_in_t addr;
-    addr.addr = context->endpoint.ip_address;
+    memcpy(&addr.addr, &context->endpoint.ip_address, sizeof(addr.addr));
     addr.port = context->endpoint.port;
 
     if (net_bind(context->socket_fd, &addr) != OS_OK) {
@@ -439,7 +439,7 @@ static coap_error_t coap_send_request_internal(
 
     /* Send request */
     sockaddr_in_t dest_addr;
-    dest_addr.addr = server_ip;
+    memcpy(&dest_addr.addr, &server_ip, sizeof(dest_addr.addr));
     dest_addr.port = server_port;
 
     int32_t sent = net_sendto(context->socket_fd, buffer, len, &dest_addr);
@@ -611,6 +611,7 @@ static coap_resource_t *coap_find_resource(coap_context_t *context, const char *
 }
 
 coap_error_t coap_process(coap_context_t *context, uint32_t timeout_ms) {
+    (void)timeout_ms;
     if (!context || context->socket_fd < 0) {
         return COAP_ERROR_INVALID_PARAM;
     }

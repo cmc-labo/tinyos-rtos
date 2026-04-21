@@ -8,10 +8,10 @@
 #include "tinyos.h"
 
 /* Timer control blocks */
-static timer_t led_blink_timer;
-static timer_t sensor_read_timer;
-static timer_t watchdog_timer;
-static timer_t one_shot_timer;
+static os_timer_t led_blink_timer;
+static os_timer_t sensor_read_timer;
+static os_timer_t watchdog_timer;
+static os_timer_t one_shot_timer;
 
 /* Application state */
 static struct {
@@ -122,7 +122,7 @@ void control_task(void *param) {
 /**
  * Example: Timeout detection using one-shot timer
  */
-static timer_t timeout_timer;
+static os_timer_t timeout_timer;
 static bool operation_completed = false;
 
 void timeout_callback(void *param) {
@@ -165,7 +165,7 @@ void async_operation_with_timeout(void) {
 /**
  * Example: Periodic heartbeat for network keepalive
  */
-static timer_t heartbeat_timer;
+static os_timer_t heartbeat_timer;
 
 void heartbeat_callback(void *param) {
     (void)param;
@@ -190,7 +190,7 @@ void setup_network_heartbeat(void) {
 /**
  * Example: Debounce timer for button input
  */
-static timer_t debounce_timer;
+static os_timer_t debounce_timer;
 static bool button_state_stable = false;
 
 void debounce_callback(void *param) {

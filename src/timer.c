@@ -10,7 +10,7 @@
 
 /* Global timer list */
 static struct {
-    timer_t *active_timers;  /* Linked list of active timers */
+    os_timer_t *active_timers;  /* Linked list of active timers */
     uint32_t timer_count;
 } timer_manager;
 
@@ -31,7 +31,7 @@ void os_timer_init(void) {
  * Create a software timer
  */
 os_error_t os_timer_create(
-    timer_t *timer,
+    os_timer_t *timer,
     const char *name,
     timer_type_t type,
     uint32_t period_ms,
@@ -45,7 +45,7 @@ os_error_t os_timer_create(
     uint32_t state = os_enter_critical();
 
     /* Initialize timer */
-    memset(timer, 0, sizeof(timer_t));
+    memset(timer, 0, sizeof(os_timer_t));
 
     if (name != NULL) {
         strncpy(timer->name, name, sizeof(timer->name) - 1);
@@ -67,13 +67,13 @@ os_error_t os_timer_create(
 /**
  * Insert timer into sorted active list (must be called within critical section)
  */
-static void timer_insert_sorted(timer_t *timer) {
+static void timer_insert_sorted(os_timer_t *timer) {
     if (timer_manager.active_timers == NULL ||
         timer->expire_time < timer_manager.active_timers->expire_time) {
         timer->next = timer_manager.active_timers;
         timer_manager.active_timers = timer;
     } else {
-        timer_t *current = timer_manager.active_timers;
+        os_timer_t *current = timer_manager.active_timers;
         while (current->next != NULL &&
                current->next->expire_time <= timer->expire_time) {
             current = current->next;
@@ -87,7 +87,7 @@ static void timer_insert_sorted(timer_t *timer) {
 /**
  * Start a timer
  */
-os_error_t os_timer_start(timer_t *timer) {
+os_error_t os_timer_start(os_timer_t *timer) {
     if (timer == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -113,7 +113,7 @@ os_error_t os_timer_start(timer_t *timer) {
 /**
  * Stop a timer
  */
-os_error_t os_timer_stop(timer_t *timer) {
+os_error_t os_timer_stop(os_timer_t *timer) {
     if (timer == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -126,7 +126,7 @@ os_error_t os_timer_stop(timer_t *timer) {
     }
 
     /* Remove timer from active list */
-    timer_t **pp = &timer_manager.active_timers;
+    os_timer_t **pp = &timer_manager.active_timers;
     while (*pp != NULL && *pp != timer) {
         pp = &(*pp)->next;
     }
@@ -146,7 +146,7 @@ os_error_t os_timer_stop(timer_t *timer) {
 /**
  * Reset a timer (restart with same period)
  */
-os_error_t os_timer_reset(timer_t *timer) {
+os_error_t os_timer_reset(os_timer_t *timer) {
     if (timer == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -159,7 +159,7 @@ os_error_t os_timer_reset(timer_t *timer) {
 /**
  * Delete a timer
  */
-os_error_t os_timer_delete(timer_t *timer) {
+os_error_t os_timer_delete(os_timer_t *timer) {
     if (timer == NULL) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -170,7 +170,7 @@ os_error_t os_timer_delete(timer_t *timer) {
     }
 
     /* Clear timer structure */
-    memset(timer, 0, sizeof(timer_t));
+    memset(timer, 0, sizeof(os_timer_t));
 
     return OS_OK;
 }
@@ -178,7 +178,7 @@ os_error_t os_timer_delete(timer_t *timer) {
 /**
  * Change timer period
  */
-os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms) {
+os_error_t os_timer_change_period(os_timer_t *timer, uint32_t new_period_ms) {
     if (timer == NULL || new_period_ms == 0) {
         return OS_ERROR_INVALID_PARAM;
     }
@@ -204,7 +204,7 @@ os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms) {
 /**
  * Check if timer is active
  */
-bool os_timer_is_active(timer_t *timer) {
+bool os_timer_is_active(os_timer_t *timer) {
     if (timer == NULL) {
         return false;
     }
@@ -221,13 +221,13 @@ void os_timer_process(void) {
 
     uint32_t state = os_enter_critical();
 
-    timer_t *timer = timer_manager.active_timers;
-    timer_t *prev = NULL;
+    os_timer_t *timer = timer_manager.active_timers;
+    os_timer_t *prev = NULL;
 
     while (timer != NULL) {
         /* Check if timer has expired (signed subtraction handles tick wraparound) */
         if ((int32_t)(current_time - timer->expire_time) >= 0) {
-            timer_t *expired_timer = timer;
+            os_timer_t *expired_timer = timer;
             timer = timer->next;
 
             /* Remove from list */
@@ -272,7 +272,7 @@ void os_timer_process(void) {
  * Get remaining time until a timer fires (in milliseconds).
  * Returns 0 if the timer is not active or has already expired.
  */
-uint32_t os_timer_get_remaining_ms(timer_t *timer) {
+uint32_t os_timer_get_remaining_ms(os_timer_t *timer) {
     if (timer == NULL || !timer->active) {
         return 0;
     }

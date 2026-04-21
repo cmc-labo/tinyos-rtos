@@ -105,8 +105,12 @@ static void mpu_configure_region(uint8_t id, void *addr, uint32_t size, uint32_t
  * Configure default memory regions
  */
 void os_mpu_configure_default(void) {
-    mpu_configure_region(0, (void *)0x00000000, 256 * 1024,        PERM_READ | PERM_EXEC);
-    mpu_configure_region(1, (void *)0x20000000, 64 * 1024,         PERM_READ | PERM_WRITE);
+    /* Skip MPU setup if no MPU present (bits[15:8] of MPU_TYPE == 0) */
+    if ((MPU_TYPE & 0xFF00u) == 0) {
+        return;
+    }
+    mpu_configure_region(0, (void *)0x00000000, 4 * 1024 * 1024,   PERM_READ | PERM_EXEC);
+    mpu_configure_region(1, (void *)0x20000000, 4 * 1024 * 1024,   PERM_READ | PERM_WRITE);
     mpu_configure_region(2, (void *)0x40000000, 512 * 1024 * 1024, PERM_READ | PERM_WRITE);
     os_mpu_enable(true);
 }
@@ -132,9 +136,8 @@ void os_mpu_fault_handler(void) {
     /* Memory protection fault occurred */
     /* Log fault information and handle appropriately */
 
-    /* Get fault address */
-    uint32_t fault_addr;
-    __asm__ volatile("mrs %0, MMFAR" : "=r"(fault_addr));
+    /* Get fault address from SCB_MMFAR (0xE000ED34) */
+    (void)*(volatile uint32_t *)0xE000ED34U;
 
     /* TODO: Log fault, potentially terminate offending task */
 

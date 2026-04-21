@@ -21,7 +21,7 @@ BUILD_DIR := build
 
 # Source files
 KERNEL_SRCS := $(wildcard $(SRC_DIR)/*.c)
-NET_SRCS    := $(wildcard $(SRC_DIR)/net/*.c)
+NET_SRCS    := $(filter-out $(SRC_DIR)/net/tls.c, $(wildcard $(SRC_DIR)/net/*.c))
 DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
@@ -71,15 +71,16 @@ MBEDTLS_SRCS := $(wildcard $(MBEDTLS_LIB)/aes.c \
 ASFLAGS := -mcpu=$(ARCH) -mthumb -g
 
 # Compiler flags
-CFLAGS := -Wall -Wextra -Werror
+CFLAGS := -Wall -Wextra -Werror -Wno-stringop-truncation
 CFLAGS += -std=c11
 CFLAGS += -mcpu=$(ARCH) -mthumb
 CFLAGS += -O2 -g
 CFLAGS += -ffunction-sections -fdata-sections
-CFLAGS += -I$(INC_DIR)
+CFLAGS += -I$(INC_DIR) -I.
 CFLAGS += -DTINYOS_VERSION=\"1.0.0\"
 # TLS support (add -DTINYOS_TLS_ENABLE to enable TLS; requires MBEDTLS_DIR)
-CFLAGS += $(if $(MBEDTLS_DIR),-DTINYOS_TLS_ENABLE -I$(MBEDTLS_INC),)
+MBEDTLS_AVAILABLE := $(shell test -f $(MBEDTLS_INC)/mbedtls/ssl.h && echo yes)
+CFLAGS += $(if $(filter yes,$(MBEDTLS_AVAILABLE)),-DTINYOS_TLS_ENABLE -I$(MBEDTLS_INC),)
 
 # Linker flags
 LDFLAGS := -mcpu=$(ARCH) -mthumb
@@ -87,8 +88,9 @@ LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -Wl,-Map=$(BUILD_DIR)/$(TARGET).map
 LDFLAGS += -nostartfiles
 
-# Linker script (to be created for specific hardware)
+# Linker script
 LDSCRIPT := linker.ld
+LDFLAGS += -T $(LDSCRIPT)
 
 # Targets
 .PHONY: all clean size flash

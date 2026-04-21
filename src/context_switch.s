@@ -158,29 +158,21 @@ os_start_first_task:
     .type   SVC_Handler, %function
 SVC_Handler:
     MRS     R1, MSP
-    LDR     R0, [R1, #0]            /* frame[0] = original R0 = first SP     */
+    LDR     R0, [R1, #0]            /* frame[0] = original R0 = stack_ptr    */
 
-    MSR     PSP, R0                 /* set first task's PSP                  */
+    /* Restore R4-R11 and advance R0 past them to the exception frame.
+     * This mirrors the PendSV tail so both paths leave PSP pointing
+     * at the CPU auto-save frame {R0-R3, R12, LR, PC, xPSR}.          */
+    LDMIA   R0!, {R4-R11}
+
+    MSR     PSP, R0                 /* PSP now at the exception frame         */
 
     MOV     R0, #2
     MSR     CONTROL, R0             /* CONTROL.SPSEL = 1 → Thread uses PSP   */
     ISB                             /* flush pipeline after CONTROL write     */
 
-    /* Zero callee-saved registers so the first task starts cleanly  */
-    MOV     R4,  #0
-    MOV     R5,  #0
-    MOV     R6,  #0
-    MOV     R7,  #0
-    MOV     R8,  #0
-    MOV     R9,  #0
-    MOV     R10, #0
-    MOV     R11, #0
-
-    /* EXC_RETURN = 0xFFFFFFFD
-     *   bit 3 = 1  return to Thread mode
-     *   bit 2 = 1  return using PSP
-     * CPU pops {R0-R3, R12, LR, PC, xPSR} from PSP → first task runs.
-     */
+    /* EXC_RETURN = 0xFFFFFFFD → Thread/PSP.
+     * CPU pops {R0-R3, R12, LR, PC, xPSR} from PSP → first task runs.  */
     LDR     LR, =0xFFFFFFFD
     BX      LR
     .size SVC_Handler, . - SVC_Handler

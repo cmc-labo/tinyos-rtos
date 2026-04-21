@@ -507,14 +507,14 @@ typedef struct software_timer {
     timer_callback_t callback;        /* Callback function */
     void *callback_param;             /* Callback parameter */
     struct software_timer *next;      /* Next timer in list */
-} timer_t;
+} os_timer_t;
 
 /* Initialize the software timer subsystem (called automatically by os_init) */
 void os_timer_init(void);
 
 /* Create a software timer */
 os_error_t os_timer_create(
-    timer_t *timer,
+    os_timer_t *timer,
     const char *name,
     timer_type_t type,
     uint32_t period_ms,
@@ -523,29 +523,31 @@ os_error_t os_timer_create(
 );
 
 /* Start a timer */
-os_error_t os_timer_start(timer_t *timer);
+os_error_t os_timer_start(os_timer_t *timer);
 
 /* Stop a timer */
-os_error_t os_timer_stop(timer_t *timer);
+os_error_t os_timer_stop(os_timer_t *timer);
 
 /* Reset a timer */
-os_error_t os_timer_reset(timer_t *timer);
+os_error_t os_timer_reset(os_timer_t *timer);
 
 /* Delete a timer */
-os_error_t os_timer_delete(timer_t *timer);
+os_error_t os_timer_delete(os_timer_t *timer);
 
 /* Change timer period */
-os_error_t os_timer_change_period(timer_t *timer, uint32_t new_period_ms);
+os_error_t os_timer_change_period(os_timer_t *timer, uint32_t new_period_ms);
 
 /* Check if timer is active */
-bool os_timer_is_active(timer_t *timer);
+bool os_timer_is_active(os_timer_t *timer);
 
 /* Get remaining time until timer fires in milliseconds (returns 0 if not active) */
-uint32_t os_timer_get_remaining_ms(timer_t *timer);
+uint32_t os_timer_get_remaining_ms(os_timer_t *timer);
 
 /*
  * Security API
  */
+
+void os_security_init(void);
 
 /* Memory region protection */
 typedef struct {

@@ -376,7 +376,7 @@ ota_error_t ota_start_update_from_buffer(const uint8_t *firmware_data, uint32_t 
     report_progress();
 
     /* Erase update partition */
-    ota_partition_info_t partition_info;
+    ota_partition_info_t partition_info = {0};
     ota_get_partition_info(ota_state.update_partition, &partition_info);
 
     if (flash_erase_range(partition_info.start_address, partition_info.size) != FLASH_OK) {
@@ -423,7 +423,7 @@ ota_error_t ota_write_chunk(const uint8_t *data, uint32_t size, uint32_t offset)
         return OTA_ERROR_INVALID_PARAM;
     }
 
-    ota_partition_info_t partition_info;
+    ota_partition_info_t partition_info = {0};
     ota_get_partition_info(ota_state.update_partition, &partition_info);
 
     if (offset + size > partition_info.size) {
@@ -705,7 +705,7 @@ const char *ota_error_to_string(ota_error_t error) {
         "Busy"
     };
 
-    if (error >= 0 && error < sizeof(error_strings) / sizeof(error_strings[0])) {
+    if ((size_t)error < sizeof(error_strings) / sizeof(error_strings[0])) {
         return error_strings[error];
     }
     return "Unknown error";
@@ -722,7 +722,7 @@ const char *ota_state_to_string(ota_state_t state) {
         "Rolling back"
     };
 
-    if (state >= 0 && state < sizeof(state_strings) / sizeof(state_strings[0])) {
+    if ((size_t)state < sizeof(state_strings) / sizeof(state_strings[0])) {
         return state_strings[state];
     }
     return "Unknown state";

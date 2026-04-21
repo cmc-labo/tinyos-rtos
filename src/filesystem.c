@@ -555,7 +555,7 @@ fs_file_t fs_open(const char *path, uint32_t flags) {
             fs_read_block(dir_inode.blocks[0], dir_buffer);
             fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
 
-            for (int i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+            for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
                 if (entries[i].inode == 0) {
                     strncpy(entries[i].name, filename, FS_MAX_FILENAME_LENGTH - 1);
                     entries[i].name[FS_MAX_FILENAME_LENGTH - 1] = '\0';
@@ -841,7 +841,7 @@ os_error_t fs_remove(const char *path) {
         fs_read_block(dir_inode.blocks[b], dir_buffer);
         fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
 
-        for (int i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+        for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
             if (entries[i].inode == (uint32_t)inode_num) {
                 memset(&entries[i], 0, sizeof(fs_dentry_t));
                 fs_write_block(dir_inode.blocks[b], dir_buffer);
@@ -996,7 +996,7 @@ os_error_t fs_rename(const char *old_path, const char *new_path) {
         fs_read_block(dir_inode.blocks[b], dir_buffer);
         fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
 
-        for (int i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+        for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
             if (entries[i].inode == (uint32_t)inode_num) {
                 strncpy(entries[i].name, new_name, FS_MAX_FILENAME_LENGTH - 1);
                 entries[i].name[FS_MAX_FILENAME_LENGTH - 1] = '\0';
@@ -1054,7 +1054,7 @@ os_error_t fs_mkdir(const char *path) {
     fs_read_block(dir_inode.blocks[0], dir_buffer);
     fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
 
-    for (int i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+    for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
         if (entries[i].inode == 0) {
             strncpy(entries[i].name, dirname, FS_MAX_FILENAME_LENGTH - 1);
             entries[i].name[FS_MAX_FILENAME_LENGTH - 1] = '\0';
@@ -1111,7 +1111,7 @@ os_error_t fs_rmdir(const char *path) {
         fs_read_block(dir_inode.blocks[b], dir_buffer);
         fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
 
-        for (int i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+        for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
             if (entries[i].inode == (uint32_t)inode_num) {
                 memset(&entries[i], 0, sizeof(fs_dentry_t));
                 fs_write_block(dir_inode.blocks[b], dir_buffer);

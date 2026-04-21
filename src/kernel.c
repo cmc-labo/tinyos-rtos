@@ -333,16 +333,27 @@ os_error_t os_task_create(
     /* Initialize stack (grows downward) */
     uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
 
-    /* Simulate initial stack frame for context switch */
-    *(--stack_top) = 0x01000000;  /* xPSR - Thumb mode */
-    *(--stack_top) = (uint32_t)entry;  /* PC */
-    *(--stack_top) = 0;  /* LR */
-    *(--stack_top) = 0;  /* R12 */
-    *(--stack_top) = 0;  /* R3 */
-    *(--stack_top) = 0;  /* R2 */
-    *(--stack_top) = 0;  /* R1 */
-    *(--stack_top) = (uint32_t)param;  /* R0 - parameter */
+    /* CPU auto-save frame (popped by EXC_RETURN) — grows downward */
+    *(--stack_top) = 0x01000000;      /* xPSR: Thumb bit set */
+    *(--stack_top) = (uint32_t)entry; /* PC */
+    *(--stack_top) = 0xFFFFFFFD;      /* LR: EXC_RETURN Thread/PSP */
+    *(--stack_top) = 0;               /* R12 */
+    *(--stack_top) = 0;               /* R3 */
+    *(--stack_top) = 0;               /* R2 */
+    *(--stack_top) = 0;               /* R1 */
+    *(--stack_top) = (uint32_t)param; /* R0 */
 
+    /* PendSV-saved registers (R4-R11), zeroed for first run */
+    *(--stack_top) = 0;  /* R11 */
+    *(--stack_top) = 0;  /* R10 */
+    *(--stack_top) = 0;  /* R9 */
+    *(--stack_top) = 0;  /* R8 */
+    *(--stack_top) = 0;  /* R7 */
+    *(--stack_top) = 0;  /* R6 */
+    *(--stack_top) = 0;  /* R5 */
+    *(--stack_top) = 0;  /* R4 */
+
+    /* stack_ptr points at R4; PendSV's LDMIA starts here */
     task->stack_ptr = stack_top;
 
     /* Register in flat task registry for iteration (ps, top, kill commands). */

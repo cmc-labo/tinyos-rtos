@@ -39,7 +39,7 @@ static void mutex_wait_enqueue(mutex_t *mutex, tcb_t *task) {
  * Remove a specific task from the mutex wait queue.
  * Must be called inside a critical section.
  */
-static void mutex_wait_dequeue(mutex_t *mutex, tcb_t *task) {
+__attribute__((unused)) static void mutex_wait_dequeue(mutex_t *mutex, tcb_t *task) {
     tcb_t **pp = &mutex->wait_queue;
     while (*pp != NULL) {
         if (*pp == task) {

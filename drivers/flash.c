@@ -6,6 +6,7 @@
  */
 
 #include "flash.h"
+#include "tinyos.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -44,7 +45,7 @@ static bool is_address_valid(uint32_t address, size_t size) {
     return size <= FLASH_TOTAL_SIZE && address <= FLASH_TOTAL_SIZE - size;
 }
 
-static bool is_sector_aligned(uint32_t address) {
+__attribute__((unused)) static bool is_sector_aligned(uint32_t address) {
     return (address % FLASH_SECTOR_SIZE) == 0;
 }
 

@@ -57,22 +57,22 @@ extern void net_udp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_
 extern void net_tcp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv4_addr_t dest_ip);
 
 /* Byte order conversion */
-static uint16_t htons(uint16_t hostshort) {
+__attribute__((unused)) static uint16_t htons(uint16_t hostshort) {
     return ((hostshort & 0xFF) << 8) | ((hostshort & 0xFF00) >> 8);
 }
 
-static uint16_t ntohs(uint16_t netshort) {
+__attribute__((unused)) static uint16_t ntohs(uint16_t netshort) {
     return htons(netshort);
 }
 
-static uint32_t htonl(uint32_t hostlong) {
+__attribute__((unused)) static uint32_t htonl(uint32_t hostlong) {
     return ((hostlong & 0x000000FF) << 24) |
            ((hostlong & 0x0000FF00) << 8)  |
            ((hostlong & 0x00FF0000) >> 8)  |
            ((hostlong & 0xFF000000) >> 24);
 }
 
-static uint32_t ntohl(uint32_t netlong) {
+__attribute__((unused)) static uint32_t ntohl(uint32_t netlong) {
     return htonl(netlong);
 }
 
