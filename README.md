@@ -39,14 +39,109 @@ Kernel footprint under 10 KB, 2 KB minimum RAM, preemptive priority-based schedu
 
 ## Quick Start
 
-**Prerequisites:** `gcc-arm-none-eabi`
+### Prerequisites
 
 ```bash
-make example-blink    # LED blink
-make example-shell    # Interactive shell over UART
-make example-mqtt     # MQTT publish/subscribe
-make example-iot      # Multi-sensor IoT node
-make size             # Binary size report
+# ARM cross-compiler (required)
+sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+# QEMU ARM emulator (optional — for running without hardware)
+sudo apt-get install -y qemu-system
+```
+
+Verify installation:
+
+```bash
+arm-none-eabi-gcc --version   # 10.x or later
+qemu-system-arm --version     # 6.x or later
+```
+
+### Build
+
+```bash
+# Default example (blink_led)
+make
+
+# Specific example
+make EXAMPLE=blink_led        # LED blink + task scheduler demo
+make EXAMPLE=event_groups     # Event group AND/OR/NOT/SYNC demo
+make EXAMPLE=iot_sensor       # Multi-sensor IoT node
+make EXAMPLE=shell_demo       # Interactive UART shell
+make EXAMPLE=mqtt_demo        # MQTT publish/subscribe
+make EXAMPLE=condition_variable  # Producer/consumer
+
+# Convenience aliases
+make example-blink
+make example-events
+make example-shell
+make example-mqtt
+make example-iot
+
+# Build output
+make size                     # Print ROM/RAM usage
+```
+
+Build artifacts are placed in `build/`:
+
+| File | Description |
+|---|---|
+| `build/tinyos.elf` | ELF image with debug symbols |
+| `build/tinyos.bin` | Raw binary for flashing |
+| `build/tinyos.map` | Linker map (symbol sizes) |
+
+### Run on QEMU
+
+TinyOS runs on the QEMU `mps2-an385` target (ARM Cortex-M3, 4 MB flash, 4 MB RAM):
+
+```bash
+# Run indefinitely (Ctrl-A X to quit)
+qemu-system-arm \
+    -machine mps2-an385 \
+    -cpu cortex-m3 \
+    -nographic \
+    -kernel build/tinyos.elf
+
+# Run for a fixed duration (e.g. 10 seconds)
+timeout 10 qemu-system-arm \
+    -machine mps2-an385 \
+    -cpu cortex-m3 \
+    -nographic \
+    -kernel build/tinyos.elf
+
+# Debug: trace interrupts
+qemu-system-arm \
+    -machine mps2-an385 \
+    -cpu cortex-m3 \
+    -nographic \
+    -d int \
+    -kernel build/tinyos.elf
+```
+
+Expected output from the interrupt trace: repeated `successful exception return` lines confirm the scheduler is running, SysTick is ticking, and PendSV context switches are completing cleanly.
+
+### Flash to Hardware
+
+```bash
+# OpenOCD (STM32 example)
+openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
+    -c "program build/tinyos.bin verify reset exit 0x08000000"
+
+# pyOCD (generic ARM Cortex-M)
+pyocd flash --target cortex_m build/tinyos.bin
+```
+
+### Build with TLS (mbedTLS)
+
+TLS support is enabled automatically when mbedTLS is present at `~/mbedtls`.
+To use a different path:
+
+```bash
+# Clone and build mbedTLS
+git clone https://github.com/Mbed-TLS/mbedtls ~/mbedtls
+make -C ~/mbedtls
+
+# Build TinyOS with TLS
+make MBEDTLS_DIR=~/mbedtls
 ```
 
 **Minimal task example:**
@@ -551,6 +646,8 @@ tinyos-rtos/
 │       ├── posix_threads.h   # POSIX pthreads compatibility layer
 │       └── posix_socket.h    # BSD socket compatibility layer
 ├── src/
+│   ├── startup.s             # Vector table, Reset_Handler, SysTick/SVC/PendSV stubs
+│   ├── context_switch.s      # Thumb-2: PendSV_Handler, SVC_Handler, os_pend_sv
 │   ├── kernel.c              # Preemptive scheduler & task management
 │   ├── sync.c                # Mutex, semaphore, queue, condition var, event groups
 │   ├── timer.c               # Software timers
@@ -570,7 +667,7 @@ tinyos-rtos/
 │   │   ├── ip.c              # IPv4 / ICMP
 │   │   ├── socket.c          # UDP / TCP socket API
 │   │   ├── http_dns.c        # HTTP client & DNS resolver
-│   │   └── tls.c             # TLS/DTLS (mbedTLS wrapper)
+│   │   └── tls.c             # TLS/DTLS (mbedTLS wrapper, excluded when mbedTLS absent)
 │   └── posix/
 │       ├── posix_threads.c   # pthreads → TinyOS task/sync wrapper
 │       └── posix_socket.c    # BSD socket → net_* wrapper
@@ -578,6 +675,7 @@ tinyos-rtos/
 │   ├── flash.c / flash.h     # Flash memory driver
 │   ├── ramdisk.c / ramdisk.h # RAM disk (testing)
 │   └── loopback_net.c        # Loopback network driver (testing)
+├── linker.ld                 # Linker script (mps2-an385: Flash 0x0/4MB, RAM 0x20000000/4MB)
 └── examples/
     ├── blink_led.c           # GPIO blink
     ├── iot_sensor.c          # Multi-task sensor node
@@ -592,6 +690,7 @@ tinyos-rtos/
     ├── low_power.c           # Power mode transitions
     ├── software_timers.c     # Timer creation and callbacks
     ├── event_groups.c        # Event synchronisation
+    ├── event_flags_logic.c   # AND / OR / NOT(CLEAR) / SYNC(barrier) patterns
     ├── condition_variable.c  # Producer/consumer
     ├── priority_adjustment.c # Dynamic priority
     ├── task_statistics.c     # CPU and stack monitoring
@@ -621,6 +720,31 @@ tinyos-rtos/
 | RISC-V | ~1.5 μs |
 
 **System requirements:** 2 KB RAM minimum · < 10 KB ROM for kernel alone
+
+---
+
+## Changelog
+
+### v1.1.0
+
+**New features**
+
+- `EVENT_WAIT_CLEAR` flag for event groups — wait until bits become **clear** (NOT condition).  
+  `EVENT_WAIT_ALL | EVENT_WAIT_CLEAR` wakes when all masked bits are 0; `EVENT_WAIT_ANY | EVENT_WAIT_CLEAR` wakes when any is 0.
+- `os_event_group_sync()` — rendezvous / barrier primitive.  
+  Each participating task sets its own arrival bit and blocks until the full set is present; all unblock simultaneously.
+- New example `examples/event_flags_logic.c` demonstrating all four modes (AND, OR, NOT, SYNC).
+
+**Build & runtime fixes**
+
+- Added `src/startup.s`: vector table, `Reset_Handler` (.data copy, .bss zero), `SysTick_Handler` stub, `HardFault_Handler`.
+- Added `linker.ld`: memory layout for `mps2-an385` (Flash `0x00000000` / 4 MB, RAM `0x20000000` / 4 MB).
+- Fixed initial task stack: R4–R11 save area is now pre-allocated so PendSV's `LDMIA {R4-R11}` works correctly on first context switch into any newly created task.
+- `SVC_Handler` updated to `LDMIA {R4-R11}` before setting PSP, keeping both SVC and PendSV paths symmetric.
+- `MPU_TYPE` check in `os_mpu_configure_default()` — MPU setup is skipped silently when no MPU is present (QEMU `mps2-an385`).
+- Renamed `timer_t` → `os_timer_t` to avoid conflict with POSIX `<sys/types.h>`.
+- Makefile: `-I.` added for `drivers/` includes; TLS sources excluded automatically when mbedTLS is absent; `-Wno-stringop-truncation` for false-positive strncpy warnings.
+- Fixed sign-compare, unused-function, uninitialized-variable, and implicit-declaration warnings across `coap.c`, `filesystem.c`, `mqtt.c`, `ota.c`, `security.c`, `net/ip.c`, `net/http_dns.c`.
 
 ---
 
