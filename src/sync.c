@@ -15,6 +15,10 @@ static const char *cur_name(void) {
     return (t && t->name[0]) ? t->name : "?";
 }
 
+/* Forward declarations for helpers used before their definitions */
+static void queue_wait_enqueue(tcb_t **head, tcb_t *task);
+static void cond_remove_task(cond_var_t *cond, tcb_t *task);
+
 /*===========================================================================
  * Mutex internal helpers
  *===========================================================================*/
@@ -276,26 +280,52 @@ os_error_t os_semaphore_wait(semaphore_t *sem, uint32_t timeout) {
         return OS_ERROR_INVALID_PARAM;
     }
 
+    tcb_t *current = os_task_get_current();
+
+    /* ── Fast path ──────────────────────────────────────────────── */
+    uint32_t cs = os_enter_critical();
+    if (sem->count > 0) {
+        sem->count--;
+        os_exit_critical(cs);
+        trace_record_syscall(cur_name(), "sem_wait");
+        return OS_OK;
+    }
+    os_exit_critical(cs);
+
+    /* ── Slow path ──────────────────────────────────────────────── */
+    if (timeout == OS_WAIT_FOREVER) {
+        /*
+         * True blocking wait (no spin).
+         * 1. Enqueue self in priority-sorted wait list.
+         * 2. Set state BLOCKED — PendSV will not re-enqueue the task.
+         * 3. Yield; resumes when os_semaphore_post() calls os_task_wakeup().
+         */
+        cs = os_enter_critical();
+        queue_wait_enqueue(&sem->wait_queue, current);
+        current->state = TASK_STATE_BLOCKED;
+        os_exit_critical(cs);
+
+        os_task_yield();   /* parks until woken; resumes here after post() */
+
+        trace_record_syscall(cur_name(), "sem_wait");
+        return OS_OK;
+    }
+
+    /* ── Timed spin-loop ────────────────────────────────────────── */
     uint32_t start_tick = os_get_tick_count();
-
     while (true) {
-        uint32_t state = os_enter_critical();
-
+        cs = os_enter_critical();
         if (sem->count > 0) {
             sem->count--;
-            os_exit_critical(state);
+            os_exit_critical(cs);
             trace_record_syscall(cur_name(), "sem_wait");
             return OS_OK;
         }
+        os_exit_critical(cs);
 
-        os_exit_critical(state);
-
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
+        if ((os_get_tick_count() - start_tick) >= timeout) {
             return OS_ERROR_TIMEOUT;
         }
-
-        /* Block and wait */
         os_task_yield();
     }
 }
@@ -323,13 +353,21 @@ os_error_t os_semaphore_post(semaphore_t *sem) {
         return OS_ERROR_INVALID_PARAM;
     }
 
-    uint32_t state = os_enter_critical();
-    sem->count++;
-    os_exit_critical(state);
-    trace_record_syscall(cur_name(), "sem_post");
+    uint32_t cs = os_enter_critical();
 
-    /* Wake up waiting tasks */
-    os_task_yield();
+    if (sem->wait_queue != NULL) {
+        /* Direct handoff: transfer to the highest-priority waiter without
+         * incrementing count, mirroring mutex ownership transfer. */
+        tcb_t *waiter  = sem->wait_queue;
+        sem->wait_queue = waiter->next;
+        waiter->next   = NULL;
+        os_task_wakeup(waiter);   /* BLOCKED → READY; may pend PendSV */
+    } else {
+        sem->count++;
+    }
+
+    os_exit_critical(cs);
+    trace_record_syscall(cur_name(), "sem_post");
 
     return OS_OK;
 }
@@ -1227,89 +1265,102 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
     }
 
     tcb_t *current_task = os_task_get_current();
-    uint32_t start_tick = os_get_tick_count();
 
-    /* Add current task to wait queue */
+    /* ── OS_WAIT_FOREVER: true blocking ──────────────────────────────── */
+    if (timeout == OS_WAIT_FOREVER) {
+        /*
+         * Atomically enqueue + set BLOCKED before releasing the mutex so
+         * that a concurrent signal cannot be lost between unlock and sleep.
+         *
+         * Sequence:
+         *   1. Critical section: add to wait_queue, set BLOCKED.
+         *   2. Release critical section.
+         *   3. Unlock mutex — os_mutex_unlock() yields internally; because
+         *      state == BLOCKED, PendSV parks us until os_cond_signal/broadcast
+         *      calls os_task_wakeup().
+         *   4. On resume: re-acquire mutex and return.
+         */
+        uint32_t cs = os_enter_critical();
+
+        /* FIFO append */
+        tcb_t **pp = &cond->wait_queue;
+        while (*pp != NULL) pp = &(*pp)->next;
+        *pp = current_task;
+        current_task->next = NULL;
+        cond->waiting_count++;
+
+        current_task->state = TASK_STATE_BLOCKED;
+
+        os_exit_critical(cs);
+
+        os_error_t unlock_result = os_mutex_unlock(mutex);
+        if (unlock_result != OS_OK) {
+            /* Unlock failed (caller doesn't own the mutex): undo enqueue */
+            cs = os_enter_critical();
+            cond_remove_task(cond, current_task);
+            cond->waiting_count--;
+            current_task->state = TASK_STATE_RUNNING;
+            os_exit_critical(cs);
+            return unlock_result;
+        }
+
+        /* Parked here until os_cond_signal/broadcast calls os_task_wakeup(). */
+        /* (os_mutex_unlock already yielded; we resume here after being woken.) */
+
+        /* Re-acquire mutex before returning to caller */
+        os_mutex_lock(mutex, OS_WAIT_FOREVER);
+        return OS_OK;
+    }
+
+    /* ── Finite timeout: timed spin-poll ─────────────────────────────── */
     uint32_t state = os_enter_critical();
 
-    /* Add to wait queue (simple FIFO) */
-    if (cond->wait_queue == NULL) {
-        cond->wait_queue = current_task;
-        current_task->next = NULL;
-    } else {
-        /* Find end of queue */
-        tcb_t *tail = cond->wait_queue;
-        while (tail->next != NULL) {
-            tail = tail->next;
-        }
-        tail->next = current_task;
-        current_task->next = NULL;
-    }
+    /* Append to FIFO wait queue */
+    tcb_t **pp = &cond->wait_queue;
+    while (*pp != NULL) pp = &(*pp)->next;
+    *pp = current_task;
+    current_task->next = NULL;
     cond->waiting_count++;
 
     os_exit_critical(state);
 
-    /* Release the mutex */
     os_error_t unlock_result = os_mutex_unlock(mutex);
     if (unlock_result != OS_OK) {
-        /* Remove from wait queue if unlock fails */
         state = os_enter_critical();
-
         cond_remove_task(cond, current_task);
-
+        cond->waiting_count--;
         os_exit_critical(state);
         return unlock_result;
     }
 
-    /* Wait to be signaled */
-    bool signaled = false;
-    while (!signaled) {
+    uint32_t start_tick = os_get_tick_count();
+
+    while (true) {
+        /* Check if signaled (removed from queue) */
         state = os_enter_critical();
-
-        /* Check if we're still in the wait queue */
-        tcb_t *task = cond->wait_queue;
-        bool found = false;
-        while (task != NULL) {
-            if (task == current_task) {
-                found = true;
-                break;
-            }
-            task = task->next;
+        bool in_queue = false;
+        for (tcb_t *t = cond->wait_queue; t != NULL; t = t->next) {
+            if (t == current_task) { in_queue = true; break; }
         }
-
-        if (!found) {
-            /* We've been signaled */
-            signaled = true;
-        }
-
         os_exit_critical(state);
 
-        if (signaled) {
-            break;
+        if (!in_queue) {
+            /* Signaled */
+            os_mutex_lock(mutex, OS_WAIT_FOREVER);
+            return OS_OK;
         }
 
-        /* Check timeout */
-        if (timeout != 0 && (os_get_tick_count() - start_tick) >= timeout) {
-            /* Timeout - remove ourselves from wait queue */
+        if ((os_get_tick_count() - start_tick) >= timeout) {
             state = os_enter_critical();
-
             cond_remove_task(cond, current_task);
-
+            cond->waiting_count--;
             os_exit_critical(state);
-
-            /* Re-acquire mutex before returning */
-            os_mutex_lock(mutex, 0);
+            os_mutex_lock(mutex, OS_WAIT_FOREVER);
             return OS_ERROR_TIMEOUT;
         }
 
-        /* Yield to other tasks */
         os_task_yield();
     }
-
-    /* Re-acquire the mutex before returning */
-    os_mutex_lock(mutex, 0);
-
-    return OS_OK;
 }
 
 /**
@@ -1323,18 +1374,15 @@ os_error_t os_cond_signal(cond_var_t *cond) {
 
     uint32_t state = os_enter_critical();
 
-    /* Wake up one task if any are waiting */
     if (cond->wait_queue != NULL) {
         tcb_t *task_to_wake = cond->wait_queue;
         cond->wait_queue = task_to_wake->next;
         task_to_wake->next = NULL;
         cond->waiting_count--;
+        os_task_wakeup(task_to_wake);   /* BLOCKED → READY; may pend PendSV */
     }
 
     os_exit_critical(state);
-
-    /* Allow the awakened task to run */
-    os_task_yield();
 
     return OS_OK;
 }
@@ -1356,12 +1404,10 @@ os_error_t os_cond_broadcast(cond_var_t *cond) {
         cond->wait_queue = task_to_wake->next;
         task_to_wake->next = NULL;
         cond->waiting_count--;
+        os_task_wakeup(task_to_wake);   /* BLOCKED → READY; may pend PendSV */
     }
 
     os_exit_critical(state);
-
-    /* Allow awakened tasks to run */
-    os_task_yield();
 
     return OS_OK;
 }

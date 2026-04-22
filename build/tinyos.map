@@ -960,13 +960,13 @@ Discarded input sections
  .rodata.os_semaphore_wait.str1.4
                 0x0000000000000000        0x9 build/sync.o
  .text.os_semaphore_wait
-                0x0000000000000000       0x6c build/sync.o
+                0x0000000000000000       0xc8 build/sync.o
  .text.os_semaphore_get_count
                 0x0000000000000000       0x14 build/sync.o
  .rodata.os_semaphore_post.str1.4
                 0x0000000000000000        0x9 build/sync.o
  .text.os_semaphore_post
-                0x0000000000000000       0x44 build/sync.o
+                0x0000000000000000       0x64 build/sync.o
  .text.os_queue_init
                 0x0000000000000000       0x34 build/sync.o
  .text.os_queue_send
@@ -1016,21 +1016,21 @@ Discarded input sections
  .text.os_cond_init
                 0x0000000000000000        0xc build/sync.o
  .text.os_cond_wait
-                0x0000000000000000      0x130 build/sync.o
+                0x0000000000000000      0x1cc build/sync.o
  .text.os_cond_signal
-                0x0000000000000000       0x34 build/sync.o
- .text.os_cond_broadcast
                 0x0000000000000000       0x38 build/sync.o
- .debug_info    0x0000000000000000     0x2515 build/sync.o
+ .text.os_cond_broadcast
+                0x0000000000000000       0x3c build/sync.o
+ .debug_info    0x0000000000000000     0x26d1 build/sync.o
  .debug_abbrev  0x0000000000000000      0x47b build/sync.o
- .debug_loc     0x0000000000000000     0x23af build/sync.o
+ .debug_loc     0x0000000000000000     0x2626 build/sync.o
  .debug_aranges
                 0x0000000000000000      0x138 build/sync.o
- .debug_ranges  0x0000000000000000      0x5b0 build/sync.o
- .debug_line    0x0000000000000000     0x18c1 build/sync.o
- .debug_str     0x0000000000000000      0xa25 build/sync.o
+ .debug_ranges  0x0000000000000000      0x650 build/sync.o
+ .debug_line    0x0000000000000000     0x1ad9 build/sync.o
+ .debug_str     0x0000000000000000      0xa26 build/sync.o
  .comment       0x0000000000000000       0x34 build/sync.o
- .debug_frame   0x0000000000000000      0x464 build/sync.o
+ .debug_frame   0x0000000000000000      0x474 build/sync.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/sync.o
  .text          0x0000000000000000        0x0 build/timer.o
