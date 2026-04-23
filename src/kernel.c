@@ -180,9 +180,12 @@ uint32_t *os_pendsv_switch(uint32_t *old_psp) {
     /* Commit the outgoing task's PSP (R4-R11 already pushed by PendSV_Handler) */
     old_task->stack_ptr = old_psp;
 
-    /* Stack guard check */
-    if (old_task->stack[0] != STACK_GUARD_MAGIC) {
-        os_stack_overflow_hook(old_task);
+    /* Stack guard check — verify all guard words */
+    for (uint32_t _gi = 0; _gi < STACK_GUARD_WORDS; _gi++) {
+        if (old_task->stack[_gi] != STACK_GUARD_MAGIC) {
+            os_stack_overflow_hook(old_task);
+            break;
+        }
     }
 
     /* If the outgoing task is still runnable (preempted, not blocked/terminated),
@@ -231,6 +234,15 @@ void os_scheduler(void) {
 
     if (kernel.current_task != NULL) {
         kernel.current_task->run_time++;
+
+        /* Periodic stack guard check — catch overflows as early as possible,
+         * not only on context switch.  Hooks bkpt/halt on detection. */
+        for (uint32_t _gi = 0; _gi < STACK_GUARD_WORDS; _gi++) {
+            if (kernel.current_task->stack[_gi] != STACK_GUARD_MAGIC) {
+                os_stack_overflow_hook(kernel.current_task);
+                break;
+            }
+        }
 
         if (kernel.current_task->time_slice > 0) {
             kernel.current_task->time_slice--;
@@ -325,10 +337,18 @@ os_error_t os_task_create(
     task->state = TASK_STATE_READY;
     task->time_slice = TIME_SLICE_MS;
 
-    /* Plant stack guard at the bottom (lowest address) of the stack.
-     * The stack grows downward, so stack[0] is the last word to be
-     * overwritten when the stack overflows. */
-    task->stack[0] = STACK_GUARD_MAGIC;
+    /* Poison-fill the entire stack so high-water-mark scanning is accurate
+     * and so uninitialized stack reads are easily spotted in a debugger. */
+    for (uint32_t i = 0; i < STACK_SIZE; i++) {
+        task->stack[i] = STACK_POISON;
+    }
+
+    /* Plant STACK_GUARD_WORDS guard words at the bottom (lowest addresses).
+     * The stack grows downward, so these are the last words overwritten on
+     * overflow — checking all of them greatly reduces false-negative risk. */
+    for (uint32_t i = 0; i < STACK_GUARD_WORDS; i++) {
+        task->stack[i] = STACK_GUARD_MAGIC;
+    }
 
     /* Initialize stack (grows downward) */
     uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
@@ -820,21 +840,19 @@ static uint32_t calculate_stack_usage(tcb_t *task) {
         return 0;
     }
 
-    /* Find lowest used stack address by looking for non-zero values.
-     * Stack grows downward, so we search upward from stack[1].
-     * stack[0] holds the guard magic and must be excluded from usage
-     * accounting so it is never misidentified as "used" stack space. */
-    uint32_t *stack_bottom = &task->stack[1];   /* skip guard word at [0] */
-    uint32_t *stack_top = &task->stack[STACK_SIZE - 1];
-    uint32_t *current = stack_bottom;
+    /* Scan upward from above the guard region, counting untouched poison
+     * words.  The first non-poison word is the high-water mark.
+     * Stack grows downward, so untouched (low) addresses still hold
+     * STACK_POISON; used addresses hold real register values. */
+    uint32_t *stack_bottom = &task->stack[STACK_GUARD_WORDS]; /* skip guards */
+    uint32_t *stack_top    = &task->stack[STACK_SIZE - 1];
+    uint32_t *current      = stack_bottom;
 
-    /* Skip zeros at bottom (unused stack) */
-    while (current < stack_top && *current == 0) {
+    while (current < stack_top && *current == STACK_POISON) {
         current++;
     }
 
-    /* Calculate used bytes */
-    uint32_t used_words = stack_top - current + 1;
+    uint32_t used_words = (uint32_t)(stack_top - current + 1);
     return used_words * sizeof(uint32_t);
 }
 
@@ -871,8 +889,8 @@ os_error_t os_task_get_stats(tcb_t *task, task_stats_t *stats) {
     /* Calculate CPU usage percentage */
     stats->cpu_usage = ticks_to_percent(task->run_time);
 
-    /* Stack guard status */
-    stats->stack_guard_ok = (task->stack[0] == STACK_GUARD_MAGIC);
+    /* Stack guard status — all guard words must be intact */
+    stats->stack_guard_ok = os_task_stack_is_healthy(task);
 
     os_exit_critical(state);
     return OS_OK;
@@ -1110,7 +1128,10 @@ bool os_is_running(void) {
  */
 bool os_task_stack_is_healthy(const tcb_t *task) {
     if (task == NULL) return false;
-    return task->stack[0] == STACK_GUARD_MAGIC;
+    for (uint32_t i = 0; i < STACK_GUARD_WORDS; i++) {
+        if (task->stack[i] != STACK_GUARD_MAGIC) return false;
+    }
+    return true;
 }
 
 /**
@@ -1119,12 +1140,13 @@ bool os_task_stack_is_healthy(const tcb_t *task) {
  */
 __attribute__((weak))
 void os_stack_overflow_hook(tcb_t *task) {
-    (void)task;
-    /* On Cortex-M: trigger a debug breakpoint so a debugger can inspect
-     * which task overflowed.  On hardware without a debugger attached this
-     * escalates to a HardFault, which is intentional — a stack overflow is
-     * a fatal error.  Replace this with a system reset or logging call as
-     * needed for your application. */
+    /* Record the offending task name before halting so a trace dump or
+     * UART log captures it even without a live debugger attached. */
+    if (task != NULL) {
+        trace_record_switch(task->name, "STACK_OVERFLOW");
+    }
+    /* Trigger a debug breakpoint.  Without a debugger this escalates to
+     * HardFault — intentional, a stack overflow is unrecoverable. */
     __asm__ volatile("bkpt #1");
-    while (1);   /* should not be reached */
+    while (1);
 }

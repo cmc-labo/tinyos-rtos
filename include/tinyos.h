@@ -28,8 +28,10 @@
 #define TICK_RATE_HZ            1000
 #define TIME_SLICE_MS           10
 
-/* Stack Guard — magic value planted at stack bottom to detect overflow */
-#define STACK_GUARD_MAGIC       0xDEADBEEFUL
+/* Stack Guard — magic values planted at stack bottom to detect overflow */
+#define STACK_GUARD_MAGIC       0xDEADBEEFUL  /* planted in each guard word     */
+#define STACK_GUARD_WORDS       4U            /* number of guard words at bottom */
+#define STACK_POISON            0xA5A5A5A5UL  /* fill pattern for unused stack   */
 
 /* Task priorities (0 = highest, 255 = lowest) */
 typedef uint8_t task_priority_t;
