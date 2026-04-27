@@ -545,6 +545,9 @@ bool os_timer_is_active(os_timer_t *timer);
 /* Get remaining time until timer fires in milliseconds (returns 0 if not active) */
 uint32_t os_timer_get_remaining_ms(os_timer_t *timer);
 
+/* Process expired timers — called automatically from SysTick via os_scheduler() */
+void os_timer_process(void);
+
 /*
  * Security API
  */

@@ -232,6 +232,9 @@ void os_scheduler(void) {
     /* Wake any tasks whose delay has expired. */
     delay_queue_tick();
 
+    /* Fire any software timers that have expired. */
+    os_timer_process();
+
     if (kernel.current_task != NULL) {
         kernel.current_task->run_time++;
 
