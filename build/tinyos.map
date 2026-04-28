@@ -445,7 +445,7 @@ Discarded input sections
  .text.os_task_get_stats
                 0x0000000000000000       0xec build/kernel.o
  .text.os_get_system_stats
-                0x0000000000000000       0xbc build/kernel.o
+                0x0000000000000000       0xb0 build/kernel.o
  .text.os_task_reset_stats
                 0x0000000000000000       0x24 build/kernel.o
  .text.os_print_task_stats
@@ -476,6 +476,8 @@ Discarded input sections
                 0x0000000000000000        0xc build/kernel.o
  .text.os_task_stack_is_healthy
                 0x0000000000000000       0x20 build/kernel.o
+ .text.os_scheduler
+                0x0000000000000000       0x14 build/kernel.o
  .rodata.CSWTCH.42
                 0x0000000000000000       0x24 build/kernel.o
  .rodata.CSWTCH.44
@@ -485,10 +487,10 @@ Discarded input sections
  .data          0x0000000000000000        0x0 build/memory.o
  .bss           0x0000000000000000        0x0 build/memory.o
  .text.os_malloc
-                0x0000000000000000       0x84 build/memory.o
- .text.os_free  0x0000000000000000       0x70 build/memory.o
+                0x0000000000000000       0x9c build/memory.o
+ .text.os_free  0x0000000000000000       0xec build/memory.o
  .text.os_get_memory_stats
-                0x0000000000000000       0x48 build/memory.o
+                0x0000000000000000       0x54 build/memory.o
  .comment       0x0000000000000000       0x34 build/memory.o
  .text          0x0000000000000000        0x0 build/mqtt.o
  .data          0x0000000000000000        0x0 build/mqtt.o
@@ -561,7 +563,7 @@ Discarded input sections
                 0x0000000000000000       0x14 build/mqtt.o
  .debug_info    0x0000000000000000     0x3744 build/mqtt.o
  .debug_abbrev  0x0000000000000000      0x588 build/mqtt.o
- .debug_loc     0x0000000000000000     0x2ecb build/mqtt.o
+ .debug_loc     0x0000000000000000     0x2eca build/mqtt.o
  .debug_aranges
                 0x0000000000000000       0xe8 build/mqtt.o
  .debug_ranges  0x0000000000000000      0x908 build/mqtt.o
@@ -693,8 +695,6 @@ Discarded input sections
                 0x0000000000000000        0x4 build/power.o
  .text.platform_get_power_consumption_mw
                 0x0000000000000000       0x20 build/power.o
- .text.os_power_init
-                0x0000000000000000       0x20 build/power.o
  .text.os_power_configure
                 0x0000000000000000       0x48 build/power.o
  .text.os_power_set_mode
@@ -811,7 +811,7 @@ Discarded input sections
  .text.cmd_net  0x0000000000000000      0x130 build/shell.o
  .rodata.cmd_top.str1.4
                 0x0000000000000000       0xdc build/shell.o
- .text.cmd_top  0x0000000000000000      0x1d8 build/shell.o
+ .text.cmd_top  0x0000000000000000      0x1dc build/shell.o
  .rodata.cmd_history.str1.4
                 0x0000000000000000       0x1c build/shell.o
  .text.cmd_history
@@ -877,11 +877,11 @@ Discarded input sections
                 0x0000000000000000      0x12c build/shell.o
  .debug_info    0x0000000000000000     0x53f7 build/shell.o
  .debug_abbrev  0x0000000000000000      0x550 build/shell.o
- .debug_loc     0x0000000000000000     0x3257 build/shell.o
+ .debug_loc     0x0000000000000000     0x3248 build/shell.o
  .debug_aranges
                 0x0000000000000000      0x118 build/shell.o
  .debug_ranges  0x0000000000000000      0xb10 build/shell.o
- .debug_line    0x0000000000000000     0x21f6 build/shell.o
+ .debug_line    0x0000000000000000     0x21eb build/shell.o
  .debug_str     0x0000000000000000      0xef4 build/shell.o
  .comment       0x0000000000000000       0x34 build/shell.o
  .debug_frame   0x0000000000000000      0x558 build/shell.o
@@ -1034,8 +1034,6 @@ Discarded input sections
  .text          0x0000000000000000        0x0 build/timer.o
  .data          0x0000000000000000        0x0 build/timer.o
  .bss           0x0000000000000000        0x0 build/timer.o
- .text.timer_insert_sorted
-                0x0000000000000000       0x44 build/timer.o
  .text.os_timer_create
                 0x0000000000000000       0x54 build/timer.o
  .text.os_timer_stop
@@ -1050,8 +1048,6 @@ Discarded input sections
                 0x0000000000000000       0x30 build/timer.o
  .text.os_timer_is_active
                 0x0000000000000000        0x8 build/timer.o
- .text.os_timer_process
-                0x0000000000000000       0x78 build/timer.o
  .text.os_timer_get_remaining_ms
                 0x0000000000000000       0x28 build/timer.o
  .text.os_timer_get_count
@@ -2979,7 +2975,7 @@ END GROUP
  *(.isr_vector)
  .isr_vector    0x0000000000000000       0x40 build/startup.o
 
-.text           0x0000000000000040      0x8a8
+.text           0x0000000000000040      0x9a4
  *(.text*)
  .text.scheduler_enqueue
                 0x0000000000000040       0x58 build/kernel.o
@@ -2991,125 +2987,132 @@ END GROUP
                 0x0000000000000104       0x44 build/kernel.o
                 0x0000000000000104                os_start
  .text.os_task_create
-                0x0000000000000148      0x110 build/kernel.o
+                0x0000000000000148      0x114 build/kernel.o
                 0x0000000000000148                os_task_create
- .text.os_init  0x0000000000000258       0x38 build/kernel.o
-                0x0000000000000258                os_init
+ .text.os_init  0x000000000000025c       0x40 build/kernel.o
+                0x000000000000025c                os_init
  .text.os_task_delay
-                0x0000000000000290       0x64 build/kernel.o
-                0x0000000000000290                os_task_delay
+                0x000000000000029c       0x64 build/kernel.o
+                0x000000000000029c                os_task_delay
  .text.os_get_tick_count
-                0x00000000000002f4        0xc build/kernel.o
-                0x00000000000002f4                os_get_tick_count
+                0x0000000000000300        0xc build/kernel.o
+                0x0000000000000300                os_get_tick_count
  .text.os_enter_critical
-                0x0000000000000300        0x8 build/kernel.o
-                0x0000000000000300                os_enter_critical
+                0x000000000000030c        0x8 build/kernel.o
+                0x000000000000030c                os_enter_critical
  .text.os_exit_critical
-                0x0000000000000308        0x8 build/kernel.o
-                0x0000000000000308                os_exit_critical
+                0x0000000000000314        0x8 build/kernel.o
+                0x0000000000000314                os_exit_critical
  .text.os_get_stats
-                0x0000000000000310       0x64 build/kernel.o
-                0x0000000000000310                os_get_stats
+                0x000000000000031c       0x64 build/kernel.o
+                0x000000000000031c                os_get_stats
  .text.os_stack_overflow_hook
-                0x0000000000000374       0x1c build/kernel.o
-                0x0000000000000374                os_stack_overflow_hook
+                0x0000000000000380       0x1c build/kernel.o
+                0x0000000000000380                os_stack_overflow_hook
  .text.os_pendsv_switch
-                0x0000000000000390       0x7c build/kernel.o
-                0x0000000000000390                os_pendsv_switch
- .text.os_scheduler
-                0x000000000000040c       0xbc build/kernel.o
-                0x000000000000040c                os_scheduler
+                0x000000000000039c       0x7c build/kernel.o
+                0x000000000000039c                os_pendsv_switch
+ .text.os_scheduler.part.0
+                0x0000000000000418       0xc0 build/kernel.o
  .text.SysTick_Handler
-                0x00000000000004c8        0x4 build/kernel.o
-                0x00000000000004c8                SysTick_Handler
+                0x00000000000004d8       0x14 build/kernel.o
+                0x00000000000004d8                SysTick_Handler
  .text.os_mem_init
-                0x00000000000004cc       0x48 build/memory.o
-                0x00000000000004cc                os_mem_init
+                0x00000000000004ec       0x48 build/memory.o
+                0x00000000000004ec                os_mem_init
  .text.os_get_free_memory
-                0x0000000000000514        0xc build/memory.o
-                0x0000000000000514                os_get_free_memory
+                0x0000000000000534        0xc build/memory.o
+                0x0000000000000534                os_get_free_memory
  .text.platform_enter_sleep_mode
-                0x0000000000000520        0x4 build/power.o
-                0x0000000000000520                platform_enter_sleep_mode
+                0x0000000000000540        0x4 build/power.o
+                0x0000000000000540                platform_enter_sleep_mode
+ .text.os_power_init
+                0x0000000000000544       0x20 build/power.o
+                0x0000000000000544                os_power_init
  .text.os_power_enter_idle
-                0x0000000000000524       0x14 build/power.o
-                0x0000000000000524                os_power_enter_idle
+                0x0000000000000564       0x14 build/power.o
+                0x0000000000000564                os_power_enter_idle
  .text.os_mpu_configure_default
-                0x0000000000000538       0x68 build/security.o
-                0x0000000000000538                os_mpu_configure_default
+                0x0000000000000578       0x68 build/security.o
+                0x0000000000000578                os_mpu_configure_default
  .text.os_security_init
-                0x00000000000005a0        0x4 build/security.o
-                0x00000000000005a0                os_security_init
+                0x00000000000005e0        0x4 build/security.o
+                0x00000000000005e0                os_security_init
+ .text.timer_insert_sorted
+                0x00000000000005e4       0x44 build/timer.o
  .text.os_timer_init
-                0x00000000000005a4       0x10 build/timer.o
-                0x00000000000005a4                os_timer_init
+                0x0000000000000628       0x10 build/timer.o
+                0x0000000000000628                os_timer_init
+ .text.os_timer_process
+                0x0000000000000638       0x78 build/timer.o
+                0x0000000000000638                os_timer_process
  .text.push_event
-                0x00000000000005b4       0xc8 build/trace.o
+                0x00000000000006b0       0xc8 build/trace.o
  .text.trace_record_switch
-                0x000000000000067c       0x2c build/trace.o
-                0x000000000000067c                trace_record_switch
+                0x0000000000000778       0x2c build/trace.o
+                0x0000000000000778                trace_record_switch
  .text.led_blink
-                0x00000000000006a8        0xc build/blink_led.o
-                0x00000000000006a8                led_blink
+                0x00000000000007a4        0xc build/blink_led.o
+                0x00000000000007a4                led_blink
  .text.system_monitor
-                0x00000000000006b4       0x14 build/blink_led.o
-                0x00000000000006b4                system_monitor
+                0x00000000000007b0       0x14 build/blink_led.o
+                0x00000000000007b0                system_monitor
  .text.startup.main
-                0x00000000000006c8       0x4c build/blink_led.o
-                0x00000000000006c8                main
- .text          0x0000000000000714       0x5c build/context_switch.o
-                0x0000000000000714                os_pend_sv
-                0x0000000000000726                PendSV_Handler
-                0x0000000000000746                os_start_first_task
-                0x000000000000074a                SVC_Handler
+                0x00000000000007c4       0x4c build/blink_led.o
+                0x00000000000007c4                main
+ .text          0x0000000000000810       0x5c build/context_switch.o
+                0x0000000000000810                os_pend_sv
+                0x0000000000000822                PendSV_Handler
+                0x0000000000000842                os_start_first_task
+                0x0000000000000846                SVC_Handler
  .text.Reset_Handler
-                0x0000000000000770       0x40 build/startup.o
-                0x0000000000000770                Reset_Handler
+                0x000000000000086c       0x40 build/startup.o
+                0x000000000000086c                Reset_Handler
  .text.Default_Handler
-                0x00000000000007b0        0x4 build/startup.o
-                0x00000000000007b0                Default_Handler
- .text          0x00000000000007b4       0xa4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
-                0x00000000000007b4                memset
- .text          0x0000000000000858       0x64 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
-                0x0000000000000858                strncpy
+                0x00000000000008ac        0x4 build/startup.o
+                0x00000000000008ac                Default_Handler
+ .text          0x00000000000008b0       0xa4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+                0x00000000000008b0                memset
+ .text          0x0000000000000954       0x64 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+                0x0000000000000954                strncpy
  *(.rodata*)
  .rodata.os_task_create.str1.4
-                0x00000000000008bc        0x0 build/kernel.o
+                0x00000000000009b8        0x0 build/kernel.o
                                           0x1 (size before relaxing)
  .rodata.os_init.str1.4
-                0x00000000000008bc        0x5 build/kernel.o
- *fill*         0x00000000000008c1        0x3 
+                0x00000000000009b8        0x5 build/kernel.o
+ *fill*         0x00000000000009bd        0x3 
  .rodata.os_stack_overflow_hook.str1.4
-                0x00000000000008c4        0xf build/kernel.o
- *fill*         0x00000000000008d3        0x1 
+                0x00000000000009c0        0xf build/kernel.o
+ *fill*         0x00000000000009cf        0x1 
  .rodata.push_event.str1.4
-                0x00000000000008d4        0x2 build/trace.o
- *fill*         0x00000000000008d6        0x2 
+                0x00000000000009d0        0x2 build/trace.o
+ *fill*         0x00000000000009d2        0x2 
  .rodata.main.str1.4
-                0x00000000000008d8       0x10 build/blink_led.o
-                0x00000000000008e8                . = ALIGN (0x4)
-                0x00000000000008e8                _etext = .
-                0x00000000000008e8                _sidata = LOADADDR (.data)
+                0x00000000000009d4       0x10 build/blink_led.o
+                0x00000000000009e4                . = ALIGN (0x4)
+                0x00000000000009e4                _etext = .
+                0x00000000000009e4                _sidata = LOADADDR (.data)
 
-.glue_7         0x00000000000008e8        0x0
- .glue_7        0x00000000000008e8        0x0 linker stubs
+.glue_7         0x00000000000009e4        0x0
+ .glue_7        0x00000000000009e4        0x0 linker stubs
 
-.glue_7t        0x00000000000008e8        0x0
- .glue_7t       0x00000000000008e8        0x0 linker stubs
+.glue_7t        0x00000000000009e4        0x0
+ .glue_7t       0x00000000000009e4        0x0 linker stubs
 
-.vfp11_veneer   0x00000000000008e8        0x0
- .vfp11_veneer  0x00000000000008e8        0x0 linker stubs
+.vfp11_veneer   0x00000000000009e4        0x0
+ .vfp11_veneer  0x00000000000009e4        0x0 linker stubs
 
-.v4_bx          0x00000000000008e8        0x0
- .v4_bx         0x00000000000008e8        0x0 linker stubs
+.v4_bx          0x00000000000009e4        0x0
+ .v4_bx         0x00000000000009e4        0x0 linker stubs
 
-.iplt           0x00000000000008e8        0x0
- .iplt          0x00000000000008e8        0x0 build/kernel.o
+.iplt           0x00000000000009e4        0x0
+ .iplt          0x00000000000009e4        0x0 build/kernel.o
 
-.rel.dyn        0x00000000000008e8        0x0
- .rel.iplt      0x00000000000008e8        0x0 build/kernel.o
+.rel.dyn        0x00000000000009e4        0x0
+ .rel.iplt      0x00000000000009e4        0x0 build/kernel.o
 
-.data           0x0000000020000000        0x4 load address 0x00000000000008e8
+.data           0x0000000020000000        0x4 load address 0x00000000000009e4
                 0x0000000020000000                _sdata = .
  *(.data*)
  .data.g_enabled
@@ -3118,35 +3121,44 @@ END GROUP
  *fill*         0x0000000020000001        0x3 
                 0x0000000020000004                _edata = .
 
-.igot.plt       0x0000000020000004        0x0 load address 0x00000000000008ec
+.igot.plt       0x0000000020000004        0x0 load address 0x00000000000009e8
  .igot.plt      0x0000000020000004        0x0 build/kernel.o
 
-.bss            0x0000000020000004     0x4ab0 load address 0x00000000000008ec
-                0x0000000020000004                _sbss = .
+.bss            0x0000000020000008     0x7d30 load address 0x00000000000009e8
+                0x0000000020000008                _sbss = .
  *(.bss*)
- .bss.kernel    0x0000000020000004     0x2ab8 build/kernel.o
- .bss.mem       0x0000000020002abc     0x1014 build/memory.o
+ .bss.kernel    0x0000000020000008     0x4d38 build/kernel.o
+ .bss.alloc_count
+                0x0000000020004d40        0x4 build/memory.o
+ .bss.free_count
+                0x0000000020004d44        0x4 build/memory.o
+ .bss.free_head
+                0x0000000020004d48        0x4 build/memory.o
+ .bss.free_payload
+                0x0000000020004d4c        0x4 build/memory.o
+ .bss.pool      0x0000000020004d50     0x2000 build/memory.o
+ .bss.used_payload
+                0x0000000020006d50        0x4 build/memory.o
  .bss.power_state
-                0x0000000020003ad0       0x38 build/power.o
+                0x0000000020006d54       0x38 build/power.o
  .bss.timer_manager
-                0x0000000020003b08        0x8 build/timer.o
- .bss.g_buf     0x0000000020003b10      0x700 build/trace.o
- .bss.g_stored  0x0000000020004210        0x4 build/trace.o
- .bss.g_total   0x0000000020004214        0x4 build/trace.o
+                0x0000000020006d8c        0x8 build/timer.o
+ .bss.g_buf     0x0000000020006d94      0x700 build/trace.o
+ .bss.g_stored  0x0000000020007494        0x4 build/trace.o
+ .bss.g_total   0x0000000020007498        0x4 build/trace.o
  .bss.g_write_idx
-                0x0000000020004218        0x4 build/trace.o
+                0x000000002000749c        0x4 build/trace.o
  .bss.blink_task
-                0x000000002000421c      0x44c build/blink_led.o
+                0x00000000200074a0      0x44c build/blink_led.o
  .bss.monitor_task
-                0x0000000020004668      0x44c build/blink_led.o
+                0x00000000200078ec      0x44c build/blink_led.o
  *(COMMON)
-                0x0000000020004ab4                . = ALIGN (0x4)
-                0x0000000020004ab4                _ebss = .
+                0x0000000020007d38                . = ALIGN (0x4)
+                0x0000000020007d38                _ebss = .
 
-.stack          0x0000000020004ab4        0x4 load address 0x00000000000008ec
-                0x0000000020004ab8                . = ALIGN (0x8)
- *fill*         0x0000000020004ab4        0x4 
-                0x0000000020004ab8                _sstack = .
+.stack          0x0000000020007d38        0x0 load address 0x00000000000009e8
+                0x0000000020007d38                . = ALIGN (0x8)
+                0x0000000020007d38                _sstack = .
 
 /DISCARD/
  *(.ARM.exidx*)
@@ -3180,121 +3192,121 @@ LOAD linker stubs
  .ARM.attributes
                 0x00000000000001a8       0x2e /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_info     0x0000000000000000     0x4815
- .debug_info    0x0000000000000000     0x1fd0 build/kernel.o
- .debug_info    0x0000000000001fd0      0x412 build/memory.o
- .debug_info    0x00000000000023e2      0xa15 build/power.o
- .debug_info    0x0000000000002df7      0x582 build/security.o
- .debug_info    0x0000000000003379      0x7fa build/timer.o
- .debug_info    0x0000000000003b73      0x53d build/trace.o
- .debug_info    0x00000000000040b0      0x493 build/blink_led.o
- .debug_info    0x0000000000004543       0x26 build/context_switch.o
- .debug_info    0x0000000000004569       0x22 build/startup.o
- .debug_info    0x000000000000458b      0x137 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_info    0x00000000000046c2      0x153 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+.debug_info     0x0000000000000000     0x480c
+ .debug_info    0x0000000000000000     0x2030 build/kernel.o
+ .debug_info    0x0000000000002030      0x3a9 build/memory.o
+ .debug_info    0x00000000000023d9      0xa15 build/power.o
+ .debug_info    0x0000000000002dee      0x582 build/security.o
+ .debug_info    0x0000000000003370      0x7fa build/timer.o
+ .debug_info    0x0000000000003b6a      0x53d build/trace.o
+ .debug_info    0x00000000000040a7      0x493 build/blink_led.o
+ .debug_info    0x000000000000453a       0x26 build/context_switch.o
+ .debug_info    0x0000000000004560       0x22 build/startup.o
+ .debug_info    0x0000000000004582      0x137 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_info    0x00000000000046b9      0x153 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_abbrev   0x0000000000000000     0x15bc
- .debug_abbrev  0x0000000000000000      0x581 build/kernel.o
- .debug_abbrev  0x0000000000000581      0x1ef build/memory.o
- .debug_abbrev  0x0000000000000770      0x37d build/power.o
- .debug_abbrev  0x0000000000000aed      0x24b build/security.o
- .debug_abbrev  0x0000000000000d38      0x329 build/timer.o
- .debug_abbrev  0x0000000000001061      0x224 build/trace.o
- .debug_abbrev  0x0000000000001285      0x1a2 build/blink_led.o
- .debug_abbrev  0x0000000000001427       0x14 build/context_switch.o
- .debug_abbrev  0x000000000000143b       0x12 build/startup.o
- .debug_abbrev  0x000000000000144d       0xb4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_abbrev  0x0000000000001501       0xbb /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+.debug_abbrev   0x0000000000000000     0x157a
+ .debug_abbrev  0x0000000000000000      0x56d build/kernel.o
+ .debug_abbrev  0x000000000000056d      0x1c1 build/memory.o
+ .debug_abbrev  0x000000000000072e      0x37d build/power.o
+ .debug_abbrev  0x0000000000000aab      0x24b build/security.o
+ .debug_abbrev  0x0000000000000cf6      0x329 build/timer.o
+ .debug_abbrev  0x000000000000101f      0x224 build/trace.o
+ .debug_abbrev  0x0000000000001243      0x1a2 build/blink_led.o
+ .debug_abbrev  0x00000000000013e5       0x14 build/context_switch.o
+ .debug_abbrev  0x00000000000013f9       0x12 build/startup.o
+ .debug_abbrev  0x000000000000140b       0xb4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_abbrev  0x00000000000014bf       0xbb /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_loc      0x0000000000000000     0x34d8
- .debug_loc     0x0000000000000000     0x17d9 build/kernel.o
- .debug_loc     0x00000000000017d9      0x435 build/memory.o
- .debug_loc     0x0000000000001c0e      0x55b build/power.o
- .debug_loc     0x0000000000002169      0x474 build/security.o
- .debug_loc     0x00000000000025dd      0x6d0 build/timer.o
- .debug_loc     0x0000000000002cad      0x400 build/trace.o
- .debug_loc     0x00000000000030ad       0x4a build/blink_led.o
- .debug_loc     0x00000000000030f7      0x22c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_loc     0x0000000000003323      0x1b5 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+.debug_loc      0x0000000000000000     0x343a
+ .debug_loc     0x0000000000000000     0x17dd build/kernel.o
+ .debug_loc     0x00000000000017dd      0x393 build/memory.o
+ .debug_loc     0x0000000000001b70      0x55b build/power.o
+ .debug_loc     0x00000000000020cb      0x474 build/security.o
+ .debug_loc     0x000000000000253f      0x6d0 build/timer.o
+ .debug_loc     0x0000000000002c0f      0x400 build/trace.o
+ .debug_loc     0x000000000000300f       0x4a build/blink_led.o
+ .debug_loc     0x0000000000003059      0x22c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_loc     0x0000000000003285      0x1b5 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_aranges  0x0000000000000000      0x448
+.debug_aranges  0x0000000000000000      0x450
  .debug_aranges
-                0x0000000000000000      0x168 build/kernel.o
+                0x0000000000000000      0x170 build/kernel.o
  .debug_aranges
-                0x0000000000000168       0x40 build/memory.o
+                0x0000000000000170       0x40 build/memory.o
  .debug_aranges
-                0x00000000000001a8       0xb8 build/power.o
+                0x00000000000001b0       0xb8 build/power.o
  .debug_aranges
-                0x0000000000000260       0x50 build/security.o
+                0x0000000000000268       0x50 build/security.o
  .debug_aranges
-                0x00000000000002b0       0x78 build/timer.o
+                0x00000000000002b8       0x78 build/timer.o
  .debug_aranges
-                0x0000000000000328       0x60 build/trace.o
+                0x0000000000000330       0x60 build/trace.o
  .debug_aranges
-                0x0000000000000388       0x30 build/blink_led.o
+                0x0000000000000390       0x30 build/blink_led.o
  .debug_aranges
-                0x00000000000003b8       0x20 build/context_switch.o
+                0x00000000000003c0       0x20 build/context_switch.o
  .debug_aranges
-                0x00000000000003d8       0x30 build/startup.o
+                0x00000000000003e0       0x30 build/startup.o
  .debug_aranges
-                0x0000000000000408       0x20 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+                0x0000000000000410       0x20 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
  .debug_aranges
-                0x0000000000000428       0x20 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+                0x0000000000000430       0x20 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_ranges   0x0000000000000000      0x958
- .debug_ranges  0x0000000000000000      0x560 build/kernel.o
- .debug_ranges  0x0000000000000560       0x98 build/memory.o
- .debug_ranges  0x00000000000005f8       0xe8 build/power.o
- .debug_ranges  0x00000000000006e0       0xf8 build/security.o
- .debug_ranges  0x00000000000007d8       0xb0 build/timer.o
- .debug_ranges  0x0000000000000888       0x88 build/trace.o
- .debug_ranges  0x0000000000000910       0x20 build/blink_led.o
- .debug_ranges  0x0000000000000930       0x28 build/startup.o
+.debug_ranges   0x0000000000000000      0x900
+ .debug_ranges  0x0000000000000000      0x550 build/kernel.o
+ .debug_ranges  0x0000000000000550       0x50 build/memory.o
+ .debug_ranges  0x00000000000005a0       0xe8 build/power.o
+ .debug_ranges  0x0000000000000688       0xf8 build/security.o
+ .debug_ranges  0x0000000000000780       0xb0 build/timer.o
+ .debug_ranges  0x0000000000000830       0x88 build/trace.o
+ .debug_ranges  0x00000000000008b8       0x20 build/blink_led.o
+ .debug_ranges  0x00000000000008d8       0x28 build/startup.o
 
-.debug_line     0x0000000000000000     0x308e
- .debug_line    0x0000000000000000     0x1582 build/kernel.o
- .debug_line    0x0000000000001582      0x415 build/memory.o
- .debug_line    0x0000000000001997      0x556 build/power.o
- .debug_line    0x0000000000001eed      0x348 build/security.o
- .debug_line    0x0000000000002235      0x59c build/timer.o
- .debug_line    0x00000000000027d1      0x371 build/trace.o
- .debug_line    0x0000000000002b42      0x125 build/blink_led.o
- .debug_line    0x0000000000002c67       0x69 build/context_switch.o
- .debug_line    0x0000000000002cd0       0x79 build/startup.o
- .debug_line    0x0000000000002d49      0x1bf /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_line    0x0000000000002f08      0x186 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+.debug_line     0x0000000000000000     0x30d4
+ .debug_line    0x0000000000000000     0x1587 build/kernel.o
+ .debug_line    0x0000000000001587      0x456 build/memory.o
+ .debug_line    0x00000000000019dd      0x556 build/power.o
+ .debug_line    0x0000000000001f33      0x348 build/security.o
+ .debug_line    0x000000000000227b      0x59c build/timer.o
+ .debug_line    0x0000000000002817      0x371 build/trace.o
+ .debug_line    0x0000000000002b88      0x125 build/blink_led.o
+ .debug_line    0x0000000000002cad       0x69 build/context_switch.o
+ .debug_line    0x0000000000002d16       0x79 build/startup.o
+ .debug_line    0x0000000000002d8f      0x1bf /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_line    0x0000000000002f4e      0x186 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_str      0x0000000000000000     0x14f9
- .debug_str     0x0000000000000000      0x984 build/kernel.o
-                                        0xa55 (size before relaxing)
- .debug_str     0x0000000000000984       0xef build/memory.o
-                                        0x2e1 (size before relaxing)
- .debug_str     0x0000000000000a73      0x4d9 build/power.o
+.debug_str      0x0000000000000000     0x14a6
+ .debug_str     0x0000000000000000      0x9af build/kernel.o
+                                        0xa80 (size before relaxing)
+ .debug_str     0x00000000000009af       0x90 build/memory.o
+                                        0x27a (size before relaxing)
+ .debug_str     0x0000000000000a3f      0x4cb build/power.o
                                         0x7b1 (size before relaxing)
- .debug_str     0x0000000000000f4c      0x107 build/security.o
+ .debug_str     0x0000000000000f0a      0x107 build/security.o
                                         0x348 (size before relaxing)
- .debug_str     0x0000000000001053      0x1b3 build/timer.o
+ .debug_str     0x0000000000001011      0x1a2 build/timer.o
                                         0x47c (size before relaxing)
- .debug_str     0x0000000000001206      0x110 build/trace.o
+ .debug_str     0x00000000000011b3      0x110 build/trace.o
                                         0x2dd (size before relaxing)
- .debug_str     0x0000000000001316       0x4b build/blink_led.o
+ .debug_str     0x00000000000012c3       0x4b build/blink_led.o
                                         0x3d1 (size before relaxing)
- .debug_str     0x0000000000001361       0x21 build/context_switch.o
+ .debug_str     0x000000000000130e       0x21 build/context_switch.o
                                          0x4b (size before relaxing)
- .debug_str     0x0000000000001382        0xe build/startup.o
+ .debug_str     0x000000000000132f        0xe build/startup.o
                                          0x44 (size before relaxing)
- .debug_str     0x0000000000001390      0x112 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_str     0x000000000000133d      0x112 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
                                         0x1b5 (size before relaxing)
- .debug_str     0x00000000000014a2       0x57 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_str     0x000000000000144f       0x57 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
                                         0x1cb (size before relaxing)
 
-.debug_frame    0x0000000000000000      0xb2c
- .debug_frame   0x0000000000000000      0x488 build/kernel.o
- .debug_frame   0x0000000000000488       0xa8 build/memory.o
- .debug_frame   0x0000000000000530      0x234 build/power.o
- .debug_frame   0x0000000000000764       0xa4 build/security.o
- .debug_frame   0x0000000000000808      0x180 build/timer.o
- .debug_frame   0x0000000000000988       0xf4 build/trace.o
- .debug_frame   0x0000000000000a7c       0x58 build/blink_led.o
- .debug_frame   0x0000000000000ad4       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_frame   0x0000000000000b00       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+.debug_frame    0x0000000000000000      0xb60
+ .debug_frame   0x0000000000000000      0x498 build/kernel.o
+ .debug_frame   0x0000000000000498       0xcc build/memory.o
+ .debug_frame   0x0000000000000564      0x234 build/power.o
+ .debug_frame   0x0000000000000798       0xa4 build/security.o
+ .debug_frame   0x000000000000083c      0x180 build/timer.o
+ .debug_frame   0x00000000000009bc       0xf4 build/trace.o
+ .debug_frame   0x0000000000000ab0       0x58 build/blink_led.o
+ .debug_frame   0x0000000000000b08       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_frame   0x0000000000000b34       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)

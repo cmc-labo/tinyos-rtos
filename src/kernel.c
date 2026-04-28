@@ -76,6 +76,12 @@ static void idle_task(void *param) {
 void os_init(void) {
     memset(&kernel, 0, sizeof(kernel));
 
+    /* Memory must be initialized before any subsystem that may allocate */
+    os_mem_init();
+
+    /* Power management must be initialized before the idle task runs */
+    os_power_init();
+
     /* Initialize software timer subsystem */
     os_timer_init();
 

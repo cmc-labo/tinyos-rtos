@@ -1,177 +1,196 @@
 /**
  * TinyOS Memory Management
  *
- * Simple, deterministic memory allocator for embedded systems
- * Uses fixed-size block allocation for predictable behavior
+ * First-fit allocator with immediate coalescing.
+ *
+ * Design
+ * ------
+ * The heap pool is a flat byte array.  Every region (free or allocated)
+ * begins with a blk_t header that records the payload size and whether the
+ * block is in use.
+ *
+ * Free blocks are linked in a singly-linked list sorted by address.
+ * Address-sorted order is the key invariant that makes O(1) coalescing
+ * possible: after inserting a freed block we can immediately check both its
+ * physical predecessor (the previous list entry) and its physical successor
+ * (blk->next) without an extra scan.
+ *
+ * Why the old allocator was broken
+ * ---------------------------------
+ * The previous implementation inserted freed blocks at the head of the free
+ * list (LIFO), producing an address-unsorted list.  The coalescing loop then
+ * tried to merge a block with its physical neighbor by following list->next,
+ * but list->next was an arbitrary address-unsorted block — not the physically
+ * adjacent one — so merges silently failed and fragmentation was unbounded.
+ *
+ * Alignment
+ * ---------
+ * All payload sizes are rounded up to ALIGN (8 bytes) so returned pointers
+ * satisfy the strictest C alignment requirement on 32-bit ARM.  The header
+ * itself is padded to the same alignment, so the payload pointer that follows
+ * it is also naturally aligned.
+ *
+ * Thread safety
+ * -------------
+ * Every public function wraps its critical work in os_enter/exit_critical()
+ * except os_get_memory_stats() which reads atomically.
  */
 
 #include "tinyos.h"
 #include <string.h>
 
-/* Memory pool configuration */
-#define MEMORY_POOL_SIZE    4096  /* 4KB total heap */
-#define BLOCK_SIZE          32    /* 32-byte blocks */
-#define NUM_BLOCKS          (MEMORY_POOL_SIZE / BLOCK_SIZE)
+/* ── Heap configuration ─────────────────────────────────────────────────── */
 
-/* Memory block structure */
-typedef struct memory_block {
-    struct memory_block *next;
-    bool allocated;
-    size_t size;
-} memory_block_t;
+#define MEMORY_POOL_SIZE  8192U    /* 8 KB — configurable at build time       */
+#define ALIGN             8U       /* must be a power of two                  */
+#define ALIGN_UP(n)       (((n) + ALIGN - 1U) & ~(ALIGN - 1U))
 
-/* Memory pool */
-static struct {
-    uint8_t pool[MEMORY_POOL_SIZE] __attribute__((aligned(4)));
-    memory_block_t *free_list;
-    size_t free_bytes;
-    size_t allocated_bytes;
-    uint32_t allocation_count;
-    uint32_t free_count;
-} mem;
+/* ── Block header ───────────────────────────────────────────────────────── */
 
-/**
- * Initialize memory management system
- */
+typedef struct blk {
+    uint32_t    size;   /* payload size (bytes, always a multiple of ALIGN)   */
+    uint32_t    used;   /* 1 = allocated, 0 = free                            */
+    struct blk *next;   /* next free block in address-sorted list (free only) */
+} blk_t;
+
+#define BLK_HDR  ALIGN_UP(sizeof(blk_t))   /* header size, aligned (16 B)   */
+#define MIN_SPLIT (BLK_HDR + ALIGN)         /* minimum useful remainder size  */
+
+/* ── Heap state ─────────────────────────────────────────────────────────── */
+
+static uint8_t pool[MEMORY_POOL_SIZE] __attribute__((aligned(8)));
+static blk_t  *free_head;      /* first free block (lowest address)          */
+static size_t  free_payload;   /* sum of free block payload sizes             */
+static size_t  used_payload;   /* sum of allocated block payload sizes        */
+static uint32_t alloc_count;
+static uint32_t free_count;
+
+/* ── Initialization ─────────────────────────────────────────────────────── */
+
 void os_mem_init(void) {
-    memset(&mem, 0, sizeof(mem));
-    mem.free_bytes = MEMORY_POOL_SIZE;
+    memset(pool, 0, MEMORY_POOL_SIZE);
 
-    /* Initialize free list */
-    mem.free_list = (memory_block_t *)mem.pool;
-    memory_block_t *current = mem.free_list;
+    blk_t *root = (blk_t *)pool;
+    root->size = MEMORY_POOL_SIZE - BLK_HDR;
+    root->used = 0;
+    root->next = NULL;
 
-    for (size_t i = 0; i < NUM_BLOCKS - 1; i++) {
-        current->allocated = false;
-        current->size = BLOCK_SIZE;
-        current->next = (memory_block_t *)((uint8_t *)current + BLOCK_SIZE);
-        current = current->next;
-    }
-
-    /* Last block */
-    current->allocated = false;
-    current->size = BLOCK_SIZE;
-    current->next = NULL;
+    free_head    = root;
+    free_payload = root->size;
+    used_payload = 0;
+    alloc_count  = 0;
+    free_count   = 0;
 }
 
-/**
- * Allocate memory
- */
+/* ── Allocation (first-fit) ─────────────────────────────────────────────── */
+
 void *os_malloc(size_t size) {
-    if (size == 0 || size > MEMORY_POOL_SIZE) {
-        return NULL;
-    }
+    if (size == 0) return NULL;
+    size = ALIGN_UP(size);
 
-    uint32_t state = os_enter_critical();
+    uint32_t cs = os_enter_critical();
 
-    /* Calculate required blocks */
-    size_t blocks_needed = (size + sizeof(memory_block_t) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    size_t total_size = blocks_needed * BLOCK_SIZE;
-
-    /* Search free list for suitable block */
-    memory_block_t *block = mem.free_list;
-    memory_block_t *prev = NULL;
-
-    while (block != NULL) {
-        if (!block->allocated) {
-            /* Check if we have enough contiguous blocks */
-            size_t available = 0;
-            memory_block_t *check = block;
-
-            while (check != NULL && !check->allocated && available < total_size) {
-                available += BLOCK_SIZE;
-                check = (memory_block_t *)((uint8_t *)check + BLOCK_SIZE);
+    blk_t **pp = &free_head;
+    while (*pp) {
+        blk_t *blk = *pp;
+        if (blk->size >= size) {
+            if (blk->size >= size + MIN_SPLIT) {
+                /* ── Split: carve the requested size from the front ──────── */
+                blk_t *remainder = (blk_t *)((uint8_t *)blk + BLK_HDR + size);
+                remainder->size  = blk->size - BLK_HDR - size;
+                remainder->used  = 0;
+                remainder->next  = blk->next;
+                *pp              = remainder;
+                blk->size        = size;
+                /* Splitting consumes BLK_HDR bytes for the new header */
+                free_payload    -= BLK_HDR + size;
+            } else {
+                /* ── Use entire block without splitting ──────────────────── */
+                *pp           = blk->next;
+                free_payload -= blk->size;
             }
-
-            if (available >= total_size) {
-                /* Found suitable block */
-                block->allocated = true;
-                block->size = total_size;
-
-                /* Remove from free list */
-                memory_block_t *next_free = (memory_block_t *)((uint8_t *)block + total_size);
-                if (prev == NULL) {
-                    mem.free_list = next_free;
-                } else {
-                    prev->next = next_free;
-                }
-
-                mem.free_bytes -= total_size;
-                mem.allocated_bytes += total_size;
-                mem.allocation_count++;
-
-                os_exit_critical(state);
-
-                /* Return pointer after block header */
-                return (void *)((uint8_t *)block + sizeof(memory_block_t));
-            }
+            blk->used  = 1;
+            blk->next  = NULL;
+            used_payload += blk->size;
+            alloc_count++;
+            os_exit_critical(cs);
+            return (uint8_t *)blk + BLK_HDR;
         }
-
-        prev = block;
-        block = block->next;
+        pp = &(*pp)->next;
     }
 
-    os_exit_critical(state);
-    return NULL;  /* Out of memory */
+    os_exit_critical(cs);
+    return NULL;   /* out of memory */
 }
 
-/**
- * Free memory
- */
+/* ── Free (with immediate coalescing) ───────────────────────────────────── */
+
 void os_free(void *ptr) {
-    if (ptr == NULL) {
+    if (!ptr) return;
+
+    blk_t *blk = (blk_t *)((uint8_t *)ptr - BLK_HDR);
+
+    uint32_t cs = os_enter_critical();
+
+    if (!blk->used) {
+        /* Double-free detected — ignore to prevent heap corruption */
+        os_exit_critical(cs);
         return;
     }
 
-    uint32_t state = os_enter_critical();
+    blk->used     = 0;
+    used_payload -= blk->size;
+    free_payload += blk->size;
+    free_count++;
 
-    /* Get block header */
-    memory_block_t *block = (memory_block_t *)((uint8_t *)ptr - sizeof(memory_block_t));
+    /*
+     * Insert into the address-sorted free list.
+     * After insertion: ...[prev] → [blk] → [cur]...
+     * with prev < blk < cur in address space (or NULL at boundaries).
+     */
+    blk_t *prev = NULL;
+    blk_t *cur  = free_head;
+    while (cur && cur < blk) { prev = cur; cur = cur->next; }
+    blk->next = cur;
+    if (prev) prev->next = blk; else free_head = blk;
 
-    if (!block->allocated) {
-        os_exit_critical(state);
-        return;  /* Double free */
+    /*
+     * Coalesce forward: merge blk with its immediate physical successor
+     * if that successor is also the next entry in the free list (i.e., they
+     * are physically adjacent and both free).
+     */
+    if (blk->next &&
+        (uint8_t *)blk + BLK_HDR + blk->size == (uint8_t *)blk->next) {
+        blk->size    += BLK_HDR + blk->next->size;
+        free_payload += BLK_HDR;           /* reclaim merged header           */
+        blk->next     = blk->next->next;
     }
 
-    /* Mark as free */
-    block->allocated = false;
-    mem.free_bytes += block->size;
-    mem.allocated_bytes -= block->size;
-    mem.free_count++;
-
-    /* Add back to free list */
-    block->next = mem.free_list;
-    mem.free_list = block;
-
-    /* Coalesce adjacent free blocks */
-    memory_block_t *cur = mem.free_list;
-    while (cur != NULL) {
-        memory_block_t *neighbor = (memory_block_t *)((uint8_t *)cur + cur->size);
-        if ((uint8_t *)neighbor < mem.pool + MEMORY_POOL_SIZE &&
-            !neighbor->allocated) {
-            cur->size += neighbor->size;
-            cur->next = neighbor->next;
-        } else {
-            cur = cur->next;
-        }
+    /*
+     * Coalesce backward: merge the predecessor (prev) with blk if they are
+     * physically adjacent.  Do this AFTER forward coalescing so prev absorbs
+     * the already-enlarged blk in one step.
+     */
+    if (prev &&
+        (uint8_t *)prev + BLK_HDR + prev->size == (uint8_t *)blk) {
+        prev->size   += BLK_HDR + blk->size;
+        free_payload += BLK_HDR;           /* reclaim merged header           */
+        prev->next    = blk->next;
     }
 
-    os_exit_critical(state);
+    os_exit_critical(cs);
 }
 
-/**
- * Get free memory
- */
+/* ── Query functions ────────────────────────────────────────────────────── */
+
 size_t os_get_free_memory(void) {
-    return mem.free_bytes;
+    return free_payload;
 }
 
-/**
- * Get memory statistics
- */
-void os_get_memory_stats(size_t *free, size_t *used, uint32_t *allocs, uint32_t *frees) {
-    if (free) *free = mem.free_bytes;
-    if (used) *used = mem.allocated_bytes;
-    if (allocs) *allocs = mem.allocation_count;
-    if (frees) *frees = mem.free_count;
+void os_get_memory_stats(size_t *free, size_t *used,
+                         uint32_t *allocs, uint32_t *frees) {
+    if (free)   *free   = free_payload;
+    if (used)   *used   = used_payload;
+    if (allocs) *allocs = alloc_count;
+    if (frees)  *frees  = free_count;
 }

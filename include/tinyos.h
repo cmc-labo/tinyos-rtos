@@ -23,7 +23,7 @@
 #define TINYOS_VERSION_PATCH    0
 
 /* Configuration */
-#define MAX_TASKS               8
+#define MAX_TASKS               16
 #define STACK_SIZE              256
 #define TICK_RATE_HZ            1000
 #define TIME_SLICE_MS           10
