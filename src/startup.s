@@ -4,25 +4,36 @@
  * Provides:
  *   - Vector table (placed at 0x00000000 by linker.ld)
  *   - Reset_Handler: copies .data, zeros .bss, calls main
- *   - Default weak handlers for all core exceptions
+ *   - Default weak handler for truly unhandled exceptions (NMI, DebugMon)
+ *
+ * Fault handlers (HardFault, MemManage, BusFault, UsageFault) are strong
+ * symbols defined in fault.c via naked assembly trampolines that capture
+ * the exception frame and call os_fault_dispatch().  The vector table
+ * entries here reference those strong symbols directly so the diagnostic
+ * handler is always invoked — the old Default_Handler stub was a silent
+ * dead-end that discarded all fault information.
  */
 
     .syntax unified
     .thumb
 
-/* ── Symbol declarations ─────────────────────────────────────────────── */
+/* ── External symbols ────────────────────────────────────────────────── */
     .extern main
-    .extern os_systick_handler   /* from kernel.c */
-    .extern SVC_Handler          /* from context_switch.s */
-    .extern PendSV_Handler       /* from context_switch.s */
+    .extern SVC_Handler           /* context_switch.s */
+    .extern PendSV_Handler        /* context_switch.s */
+    .extern SysTick_Handler       /* kernel.c         */
+    .extern HardFault_Handler     /* fault.c          */
+    .extern MemManage_Handler     /* fault.c          */
+    .extern BusFault_Handler      /* fault.c          */
+    .extern UsageFault_Handler    /* fault.c          */
 
 /* ── Linker-script symbols ───────────────────────────────────────────── */
-    .extern _estack              /* top of MSP stack  */
-    .extern _sidata              /* LMA of .data init values in flash */
-    .extern _sdata               /* VMA start of .data in RAM */
-    .extern _edata               /* VMA end of .data in RAM */
-    .extern _sbss                /* start of .bss in RAM */
-    .extern _ebss                /* end of .bss in RAM */
+    .extern _estack
+    .extern _sidata
+    .extern _sdata
+    .extern _edata
+    .extern _sbss
+    .extern _ebss
 
 /* ── Vector table ────────────────────────────────────────────────────── */
     .section .isr_vector, "a", %progbits
@@ -30,22 +41,22 @@
     .size g_pfnVectors, . - g_pfnVectors
 
 g_pfnVectors:
-    .word _estack               /* 0: Initial MSP */
-    .word Reset_Handler         /* 1: Reset */
-    .word Default_Handler       /* 2: NMI */
-    .word HardFault_Handler     /* 3: Hard Fault */
-    .word Default_Handler       /* 4: MemManage */
-    .word Default_Handler       /* 5: BusFault */
-    .word Default_Handler       /* 6: UsageFault */
-    .word 0                     /* 7-10: Reserved */
+    .word _estack               /* 0:  Initial MSP                           */
+    .word Reset_Handler         /* 1:  Reset                                 */
+    .word Default_Handler       /* 2:  NMI                                   */
+    .word HardFault_Handler     /* 3:  HardFault  — fault.c                  */
+    .word MemManage_Handler     /* 4:  MemManage  — fault.c (was Default!)   */
+    .word BusFault_Handler      /* 5:  BusFault   — fault.c (was Default!)   */
+    .word UsageFault_Handler    /* 6:  UsageFault — fault.c (was Default!)   */
+    .word 0                     /* 7-10: Reserved                            */
     .word 0
     .word 0
     .word 0
-    .word SVC_Handler           /* 11: SVCall */
-    .word Default_Handler       /* 12: DebugMon */
-    .word 0                     /* 13: Reserved */
-    .word PendSV_Handler        /* 14: PendSV */
-    .word SysTick_Handler       /* 15: SysTick */
+    .word SVC_Handler           /* 11: SVCall  — context_switch.s            */
+    .word Default_Handler       /* 12: DebugMon                              */
+    .word 0                     /* 13: Reserved                              */
+    .word PendSV_Handler        /* 14: PendSV  — context_switch.s            */
+    .word SysTick_Handler       /* 15: SysTick — kernel.c                    */
 
 /* ── Reset handler ───────────────────────────────────────────────────── */
     .section .text.Reset_Handler
@@ -82,22 +93,11 @@ Reset_Handler:
     b    .
     .size Reset_Handler, . - Reset_Handler
 
-/* ── SysTick delegates to kernel ─────────────────────────────────────── */
-    .section .text.SysTick_Handler
-    .weak SysTick_Handler
-    .type SysTick_Handler, %function
-SysTick_Handler:
-    push {lr}
-    bl   os_systick_handler
-    pop  {pc}
-    .size SysTick_Handler, . - SysTick_Handler
-
-/* ── Default/HardFault handlers ─────────────────────────────────────── */
+/* ── Default handler (NMI, DebugMon, and any unregistered exception) ─── */
     .section .text.Default_Handler
     .weak Default_Handler
     .type Default_Handler, %function
 Default_Handler:
-HardFault_Handler:
     bkpt #0
     b    .
     .size Default_Handler, . - Default_Handler
