@@ -1295,10 +1295,11 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
 
         os_error_t unlock_result = os_mutex_unlock(mutex);
         if (unlock_result != OS_OK) {
-            /* Unlock failed (caller doesn't own the mutex): undo enqueue */
+            /* Unlock failed (caller doesn't own the mutex): undo enqueue.
+             * cond_remove_task() already decrements waiting_count — do NOT
+             * decrement again here. */
             cs = os_enter_critical();
             cond_remove_task(cond, current_task);
-            cond->waiting_count--;
             current_task->state = TASK_STATE_RUNNING;
             os_exit_critical(cs);
             return unlock_result;
@@ -1326,9 +1327,9 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
 
     os_error_t unlock_result = os_mutex_unlock(mutex);
     if (unlock_result != OS_OK) {
+        /* cond_remove_task() already decrements waiting_count. */
         state = os_enter_critical();
         cond_remove_task(cond, current_task);
-        cond->waiting_count--;
         os_exit_critical(state);
         return unlock_result;
     }
@@ -1351,9 +1352,9 @@ os_error_t os_cond_wait(cond_var_t *cond, mutex_t *mutex, uint32_t timeout) {
         }
 
         if ((os_get_tick_count() - start_tick) >= timeout) {
+            /* cond_remove_task() already decrements waiting_count. */
             state = os_enter_critical();
             cond_remove_task(cond, current_task);
-            cond->waiting_count--;
             os_exit_critical(state);
             os_mutex_lock(mutex, OS_WAIT_FOREVER);
             return OS_ERROR_TIMEOUT;

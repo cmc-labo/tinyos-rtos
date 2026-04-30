@@ -986,18 +986,18 @@ Discarded input sections
  .text.os_cond_init
                 0x0000000000000000        0xc build/sync.o
  .text.os_cond_wait
-                0x0000000000000000      0x1cc build/sync.o
+                0x0000000000000000      0x1bc build/sync.o
  .text.os_cond_signal
                 0x0000000000000000       0x38 build/sync.o
  .text.os_cond_broadcast
                 0x0000000000000000       0x3c build/sync.o
  .debug_info    0x0000000000000000     0x26d1 build/sync.o
  .debug_abbrev  0x0000000000000000      0x47b build/sync.o
- .debug_loc     0x0000000000000000     0x2626 build/sync.o
+ .debug_loc     0x0000000000000000     0x2636 build/sync.o
  .debug_aranges
                 0x0000000000000000      0x138 build/sync.o
- .debug_ranges  0x0000000000000000      0x650 build/sync.o
- .debug_line    0x0000000000000000     0x1ad9 build/sync.o
+ .debug_ranges  0x0000000000000000      0x648 build/sync.o
+ .debug_line    0x0000000000000000     0x1ab3 build/sync.o
  .debug_str     0x0000000000000000      0xa26 build/sync.o
  .comment       0x0000000000000000       0x34 build/sync.o
  .debug_frame   0x0000000000000000      0x474 build/sync.o
