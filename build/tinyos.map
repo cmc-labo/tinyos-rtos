@@ -920,7 +920,7 @@ Discarded input sections
  .rodata.os_mutex_lock.str1.4
                 0x0000000000000000        0xb build/sync.o
  .text.os_mutex_lock
-                0x0000000000000000      0x100 build/sync.o
+                0x0000000000000000      0x130 build/sync.o
  .rodata.os_mutex_unlock.str1.4
                 0x0000000000000000        0xb build/sync.o
  .text.os_mutex_unlock
@@ -991,13 +991,13 @@ Discarded input sections
                 0x0000000000000000       0x38 build/sync.o
  .text.os_cond_broadcast
                 0x0000000000000000       0x3c build/sync.o
- .debug_info    0x0000000000000000     0x26d1 build/sync.o
- .debug_abbrev  0x0000000000000000      0x47b build/sync.o
- .debug_loc     0x0000000000000000     0x2636 build/sync.o
+ .debug_info    0x0000000000000000     0x2743 build/sync.o
+ .debug_abbrev  0x0000000000000000      0x488 build/sync.o
+ .debug_loc     0x0000000000000000     0x2694 build/sync.o
  .debug_aranges
                 0x0000000000000000      0x138 build/sync.o
- .debug_ranges  0x0000000000000000      0x648 build/sync.o
- .debug_line    0x0000000000000000     0x1ab3 build/sync.o
+ .debug_ranges  0x0000000000000000      0x668 build/sync.o
+ .debug_line    0x0000000000000000     0x1b1b build/sync.o
  .debug_str     0x0000000000000000      0xa26 build/sync.o
  .comment       0x0000000000000000       0x34 build/sync.o
  .debug_frame   0x0000000000000000      0x474 build/sync.o

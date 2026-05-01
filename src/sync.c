@@ -189,6 +189,22 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
             os_exit_critical(cs);
 
             if ((os_get_tick_count() - start) >= timeout) {
+                /* Undo the PIP boost we applied during the spin.
+                 *
+                 * The timed path never adds itself to mutex->wait_queue, so
+                 * mutex_pip_recalculate() will either:
+                 *   - restore owner to base_priority  (no other waiters), or
+                 *   - keep the boost at the level of the highest remaining
+                 *     WAIT_FOREVER waiter still in the queue.
+                 *
+                 * Without this the owner retains an artificially high priority
+                 * long after the waiter has given up, causing priority inversion
+                 * for unrelated tasks. */
+                cs = os_enter_critical();
+                if (mutex->locked && mutex->owner != NULL) {
+                    mutex_pip_recalculate(mutex);
+                }
+                os_exit_critical(cs);
                 return OS_ERROR_TIMEOUT;
             }
 
