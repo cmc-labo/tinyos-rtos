@@ -138,12 +138,23 @@ power_mode_t os_power_get_mode(void) {
 /**
  * Enter idle mode (called automatically by idle task)
  */
+/* Implemented in kernel.c — needs access to kernel-private delay queue
+ * and SysTick registers that are not exposed through the public API. */
+extern void os_kernel_tickless_sleep(void);
+
 void os_power_enter_idle(void) {
     if (!power_state.config.idle_mode_enabled) {
         return;
     }
 
-    /* Enter low-power idle */
+    if (power_state.tickless_idle_enabled) {
+        /* Suppress SysTick for the duration of the next task wakeup,
+         * measure actual sleep via DWT, then correct kernel.tick_count. */
+        os_kernel_tickless_sleep();
+        return;
+    }
+
+    /* Non-tickless: simple WFI, SysTick keeps firing every 1 ms. */
     platform_enter_sleep_mode();
 }
 

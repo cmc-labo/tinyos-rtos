@@ -28,6 +28,11 @@
 #define TICK_RATE_HZ            1000
 #define TIME_SLICE_MS           10
 
+/* Tickless idle: maximum ticks the kernel may suppress SysTick in one
+ * WFI sleep.  100 ticks (= 100 ms at 1 kHz) bounds worst-case wakeup
+ * latency and limits DWT cycle-counter drift to a manageable window. */
+#define TICKLESS_MAX_SLEEP_TICKS  100U
+
 /* Stack Guard — magic values planted at stack bottom to detect overflow */
 #define STACK_GUARD_MAGIC       0xDEADBEEFUL  /* planted in each guard word     */
 #define STACK_GUARD_WORDS       4U            /* number of guard words at bottom */

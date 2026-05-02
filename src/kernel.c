@@ -1159,3 +1159,98 @@ void os_stack_overflow_hook(tcb_t *task) {
     __asm__ volatile("bkpt #1");
     while (1);
 }
+
+/*===========================================================================
+ * Tickless Idle
+ *
+ * Called by os_power_enter_idle() when tickless idle mode is enabled.
+ *
+ * Normal (non-tickless) idle fires SysTick every 1 ms regardless of whether
+ * any work is pending.  Each ISR entry/exit burns ~hundreds of cycles and
+ * prevents the CPU's deepest sleep states.
+ *
+ * Tickless idle:
+ *   1. Inspects the delay queue to find the earliest task wakeup.
+ *   2. Stops SysTick so the CPU can sleep uninterrupted.
+ *   3. Executes WFI — any enabled interrupt (timer, GPIO, UART …) wakes it.
+ *   4. Measures actual elapsed time via the DWT cycle counter (Cortex-M3/4/7).
+ *   5. Re-enables SysTick and advances kernel.tick_count by the measured ticks.
+ *   6. Processes the delay queue and software timers for the elapsed period.
+ *
+ * DWT cycle counter (0xE0001004):
+ *   32-bit free-running counter driven by the processor clock.  Unsigned
+ *   subtraction (after - before) handles the wrap-around correctly.
+ *   At 168 MHz it wraps every ~25 s; since we cap sleep at
+ *   TICKLESS_MAX_SLEEP_TICKS (100 ms) this is never an issue.
+ *
+ * Thread safety:
+ *   Must be called only from the idle task (single caller guaranteed).
+ *   Internal critical sections protect shared kernel state.
+ *===========================================================================*/
+
+/* DWT registers (Cortex-M3/M4/M7; read as zero on Cortex-M0/M0+) */
+#define DWT_CTRL    (*(volatile uint32_t *)0xE0001000U)
+#define DWT_CYCCNT  (*(volatile uint32_t *)0xE0001004U)
+#define DWT_CTRL_CYCCNTENA  (1UL << 0)
+
+/* Cycles per SysTick tick — derived from the compile-time clock constant. */
+#define CYCLES_PER_TICK  (SYSTEM_CORE_CLOCK / TICK_RATE_HZ)
+
+void os_kernel_tickless_sleep(void) {
+    uint32_t cs = os_enter_critical();
+
+    /* ── 1. Determine safe sleep duration ─────────────────────────────── */
+    uint32_t sleep_ticks = TICKLESS_MAX_SLEEP_TICKS;
+
+    if (kernel.delay_queue != NULL) {
+        int32_t until_next =
+            (int32_t)(kernel.delay_queue->wake_tick - kernel.tick_count);
+        if (until_next <= 0) {
+            /* A task is already overdue — skip sleep entirely. */
+            os_exit_critical(cs);
+            return;
+        }
+        if ((uint32_t)until_next < sleep_ticks) {
+            sleep_ticks = (uint32_t)until_next;
+        }
+    }
+
+    /* ── 2. Enable DWT and stop SysTick ───────────────────────────────── */
+    DWT_CTRL |= DWT_CTRL_CYCCNTENA;   /* enable cycle counter if not already */
+    SYST_CSR &= ~SYST_CSR_ENABLE;     /* stop SysTick — no more tick IRQs    */
+    uint32_t cyc_before = DWT_CYCCNT; /* snapshot before sleep               */
+
+    os_exit_critical(cs);
+
+    /* ── 3. Sleep ─────────────────────────────────────────────────────── */
+    /* WFI returns as soon as any unmasked interrupt becomes pending.
+     * If another interrupt fires between os_exit_critical and WFI, the
+     * processor treats WFI as a NOP and returns immediately — correct. */
+    __asm__ volatile("wfi" ::: "memory");
+
+    /* ── 4. Measure elapsed ticks via DWT ─────────────────────────────── */
+    cs = os_enter_critical();
+
+    uint32_t elapsed_cycles = DWT_CYCCNT - cyc_before; /* wrap-safe subtract */
+    uint32_t elapsed_ticks  = elapsed_cycles / CYCLES_PER_TICK;
+    if (elapsed_ticks > sleep_ticks) {
+        elapsed_ticks = sleep_ticks;   /* clamp: never advance past our bound */
+    }
+
+    /* ── 5. Restart SysTick and advance tick counter ──────────────────── */
+    SYST_CVR = 0;                      /* clear so next tick is a full period */
+    SYST_CSR |= SYST_CSR_ENABLE;
+
+    kernel.tick_count += elapsed_ticks;
+
+    /* ── 6. Wake overdue tasks (all in one sorted-list pass) ──────────── */
+    delay_queue_tick();
+
+    os_exit_critical(cs);
+
+    /* Process software timers outside the critical section so that timer
+     * callbacks can safely call blocking OS APIs (e.g. semaphore post). */
+    if (elapsed_ticks > 0) {
+        os_timer_process();
+    }
+}
