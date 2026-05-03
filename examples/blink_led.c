@@ -54,14 +54,11 @@ void system_monitor(void *param) {
  * Main entry point
  */
 int main(void) {
-    /* Initialize OS */
+    /* Initialize OS (internally calls os_mem_init, os_power_init, os_timer_init) */
     os_init();
 
-    /* Initialize security */
+    /* Initialize security (MPU — not called by os_init) */
     os_security_init();
-
-    /* Initialize memory */
-    os_mem_init();
 
     /* Create LED blink task */
     os_task_create(

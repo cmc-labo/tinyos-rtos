@@ -7,6 +7,8 @@
  * - Wakeup sources
  * - Battery life estimation
  * - Power statistics
+ * - Tickless idle: SysTick is suppressed during WFI; elapsed time is measured
+ *   via the DWT CYCCNT cycle counter and applied to kernel.tick_count on wakeup.
  *
  * Hardware: ARM Cortex-M with low-power modes
  */
@@ -170,9 +172,8 @@ int main(void) {
     printf("TinyOS Low-Power Mode Example\n");
     printf("==============================\n\n");
 
-    /* Initialize OS */
+    /* Initialize OS (internally calls os_mem_init, os_power_init, os_timer_init) */
     os_init();
-    os_power_init();
 
     /* Configure power management */
     power_config_t power_config = {
@@ -195,7 +196,9 @@ int main(void) {
     os_power_configure_wakeup(WAKEUP_SOURCE_RTC, true);
     os_power_configure_wakeup(WAKEUP_SOURCE_GPIO, true);
 
-    /* Enable tickless idle for maximum power savings */
+    /* Enable tickless idle: SysTick is gated during WFI; the DWT CYCCNT cycle
+     * counter measures actual elapsed time and corrects kernel.tick_count after
+     * each wakeup.  Capped at TICKLESS_MAX_SLEEP_TICKS per sleep period. */
     os_power_enable_tickless_idle(true);
 
     /* Initialize event group */

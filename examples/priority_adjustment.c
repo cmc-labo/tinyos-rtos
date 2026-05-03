@@ -11,6 +11,11 @@
  * - High priority task needs the same resource
  * - Priority inheritance automatically boosts the low priority task
  * - After release, priority is restored
+ *
+ * PIP timeout behaviour (fixed in v1.2.0):
+ * - If the high priority task's timed lock expires before the mutex is released,
+ *   mutex_pip_recalculate() is called to undo the owner's priority boost
+ *   immediately — the boost is not left active until the next lock/unlock cycle.
  */
 
 #include "tinyos.h"

@@ -189,11 +189,8 @@ int main(void) {
     printf("\n");
     printf("Starting system...\n\n");
 
-    /* Initialize OS */
+    /* Initialize OS (internally calls os_mem_init, os_power_init, os_timer_init) */
     os_init();
-
-    /* Initialize memory management */
-    os_mem_init();
 
     /* Create worker tasks with different priorities */
     os_task_create(
