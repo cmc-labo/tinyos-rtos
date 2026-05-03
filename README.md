@@ -12,7 +12,7 @@ Kernel footprint under 10 KB, 2 KB minimum RAM, preemptive priority-based schedu
 | **Kernel** | Preemptive priority-based scheduling (256 levels), round-robin within same priority, O(1) priority lookup via bitmap, priority inheritance |
 | **Synchronization** | Mutex (with priority inheritance), semaphore, condition variable, event groups, message queues |
 | **Software Timers** | One-shot and auto-reload, millisecond precision, period change at runtime |
-| **Memory** | Fixed-block pool allocator, stack overflow detection, per-task high-water mark |
+| **Memory** | First-fit allocator with immediate coalescing (8 KB heap, 8-byte aligned), stack overflow detection, per-task high-water mark |
 | **Shell** | VT100 interactive shell — 23 built-in commands, command history (↑↓), tab completion, full line editor |
 | **POSIX Compatibility** | pthreads (create/join/detach/exit, mutex, cond var) · BSD socket API (socket/bind/listen/accept/connect/send/recv, inet_pton/ntop, htons/htonl) |
 | **File System** | Lightweight block-device FS, POSIX-like API, wear levelling, power-fail safe |
@@ -593,10 +593,11 @@ wdt_register_task(task, timeout_ms) / wdt_feed_task(task)
 **`include/tinyos.h`** — kernel and OS:
 
 ```c
-#define MAX_TASKS        8      /* max concurrent tasks           */
-#define STACK_SIZE       256    /* stack size per task (words)    */
-#define TICK_RATE_HZ     1000   /* scheduler tick frequency (Hz)  */
-#define TIME_SLICE_MS    10     /* round-robin time slice (ms)    */
+#define MAX_TASKS              16     /* max concurrent tasks                    */
+#define STACK_SIZE             256    /* stack size per task (words)             */
+#define TICK_RATE_HZ           1000   /* scheduler tick frequency (Hz)           */
+#define TIME_SLICE_MS          10     /* round-robin time slice (ms)             */
+#define TICKLESS_MAX_SLEEP_TICKS 100U /* tickless idle: max ticks per WFI sleep  */
 ```
 
 **`include/tinyos/shell.h`** — interactive shell:
@@ -724,6 +725,31 @@ tinyos-rtos/
 ---
 
 ## Changelog
+
+### v1.2.0
+
+**Bug fixes**
+
+- **`startup.s` vector table** — `MemManage_Handler`, `BusFault_Handler`, and `UsageFault_Handler` now point to the correct handlers in `fault.c`.  
+  Previously all three entries resolved to `Default_Handler`, so MPU, bus, and usage faults were silently swallowed instead of triggering the diagnostic dump.
+- **`os_cond_wait` double-decrement** — `cond_remove_task()` already decrements `waiting_count`; the three call sites that decremented it again afterward have been fixed.  
+  Previously a spurious extra decrement could underflow the counter and corrupt condition variable state.
+- **Mutex PIP boost not released on timeout** — the timed spin path in `os_mutex_lock` now calls `mutex_pip_recalculate()` before returning `OS_ERROR_TIMEOUT`.  
+  Previously the priority boost applied to the owner was never undone when the waiting task gave up, causing permanent priority inflation.
+
+**Improvements**
+
+- **Memory allocator rewrite** (`src/memory.c`) — replaced the fixed 32-byte block pool with a first-fit allocator featuring:  
+  - 8 KB heap (up from 4 KB), 8-byte aligned blocks  
+  - Free list kept in address order; adjacent free blocks are coalesced immediately on every `os_free()` (forward and backward)  
+  - Blocks are split on allocation when the remainder is large enough to be useful (`≥ BLK_HDR + ALIGN`)
+- **`os_init()` initialization order** — `os_mem_init()` and `os_power_init()` are now called before `os_timer_init()`, so the heap and power subsystem are ready before any timer callbacks or task code runs.
+- **Tickless idle implemented** (`src/kernel.c: os_kernel_tickless_sleep`) — when enabled via `os_power_enable_tickless_idle(true)`, the idle task suppresses SysTick before `WFI` and uses the DWT `CYCCNT` cycle counter to measure actual elapsed time.  
+  After wakeup SysTick is restarted, `kernel.tick_count` is advanced by the measured ticks (capped at `TICKLESS_MAX_SLEEP_TICKS`), and `delay_queue_tick()` is called to immediately unblock any overdue tasks.  
+  Previously the flag existed but the idle path always fell through to a plain `WFI` with SysTick running.
+- **`MAX_TASKS` increased** — raised from 8 to 16 to support more realistic IoT workloads without user-side configuration changes.
+
+---
 
 ### v1.1.0
 
