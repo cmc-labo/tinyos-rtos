@@ -1143,21 +1143,143 @@ bool os_task_stack_is_healthy(const tcb_t *task) {
     return true;
 }
 
+/*===========================================================================
+ * Stack overflow detection — persistent record + configurable recovery
+ *===========================================================================*/
+
+/* ARMv7-M Application Interrupt and Reset Control Register */
+#define SCB_AIRCR          (*(volatile uint32_t *)0xE000ED0CU)
+#define AIRCR_VECTKEY      (0x05FAUL << 16)
+#define AIRCR_SYSRESETREQ  (1UL << 2)
+
+/*
+ * Overflow diagnostic record in .noinit RAM.
+ *
+ * The .noinit section is intentionally NOT zeroed by Reset_Handler, so this
+ * variable retains its value across a soft (NVIC) reset.  That allows the
+ * OVERFLOW_ACTION_RESET path to write a diagnosis, trigger a reset, and have
+ * the application read back what happened on the next boot via
+ * os_stack_overflow_get_record().
+ *
+ * On a cold power-on the content is undefined; the magic word distinguishes a
+ * valid record from random memory.
+ */
+static os_overflow_record_t overflow_record
+    __attribute__((section(".noinit"), used));
+
+/* Configured recovery action — default: halt with breakpoint */
+static overflow_action_t overflow_action = OVERFLOW_ACTION_HALT;
+
+void os_stack_overflow_set_action(overflow_action_t action) {
+    overflow_action = action;
+}
+
+bool os_stack_overflow_record_valid(void) {
+    return (overflow_record.magic == OS_OVERFLOW_RECORD_MAGIC);
+}
+
+bool os_stack_overflow_get_record(os_overflow_record_t *out) {
+    if (overflow_record.magic != OS_OVERFLOW_RECORD_MAGIC) {
+        return false;
+    }
+    if (out != NULL) {
+        *out = overflow_record;
+    }
+    overflow_record.magic = 0U;  /* consume — prevent stale re-read */
+    return true;
+}
+
 /**
- * Default overflow hook — halts with a breakpoint.
- * Declare your own (non-weak) os_stack_overflow_hook() to override.
+ * Default overflow hook — fills a persistent diagnostic record, then acts on
+ * the configured overflow_action.  Override (non-weak) for custom behaviour.
+ *
+ * Called from interrupt context (PendSV or SysTick) with interrupts masked.
  */
 __attribute__((weak))
 void os_stack_overflow_hook(tcb_t *task) {
-    /* Record the offending task name before halting so a trace dump or
-     * UART log captures it even without a live debugger attached. */
+    /* 1. Count how many of the STACK_GUARD_WORDS guard words were corrupted. */
+    uint32_t corrupted = 0;
+    if (task != NULL) {
+        for (uint32_t i = 0; i < STACK_GUARD_WORDS; i++) {
+            if (task->stack[i] != STACK_GUARD_MAGIC) {
+                corrupted++;
+            }
+        }
+    }
+
+    /* 2. Write diagnostic record (valid for both RESET and post-mortem reads). */
+    overflow_record.magic           = OS_OVERFLOW_RECORD_MAGIC;
+    overflow_record.tick_count      = kernel.tick_count;
+    overflow_record.corrupted_words = corrupted;
+    overflow_record.action_taken    = overflow_action;
+    if (task != NULL) {
+        for (int i = 0; i < 16; i++) {
+            overflow_record.task_name[i] = task->name[i];
+        }
+        overflow_record.stack_high_water = task->stack_high_water_mark;
+    } else {
+        overflow_record.task_name[0] = '?';
+        overflow_record.task_name[1] = '\0';
+        overflow_record.stack_high_water = 0U;
+    }
+
+    /* 3. Leave a breadcrumb in the in-RAM trace ring buffer. */
     if (task != NULL) {
         trace_record_switch(task->name, "STACK_OVERFLOW");
     }
-    /* Trigger a debug breakpoint.  Without a debugger this escalates to
-     * HardFault — intentional, a stack overflow is unrecoverable. */
-    __asm__ volatile("bkpt #1");
-    while (1);
+
+    /* 4. Execute the configured recovery action. */
+    switch (overflow_action) {
+
+        case OVERFLOW_ACTION_RESET:
+            /* Record is already written above.  Issue an NVIC system reset so
+             * the record survives in .noinit and the system restarts cleanly. */
+            __asm__ volatile("dsb");
+            SCB_AIRCR = AIRCR_VECTKEY
+                      | (SCB_AIRCR & 0x0700U)   /* preserve PRIGROUP */
+                      | AIRCR_SYSRESETREQ;
+            __asm__ volatile("isb");
+            while (1);                           /* wait for reset to take effect */
+
+        case OVERFLOW_ACTION_KILL_TASK:
+            if (task != NULL) {
+                /* Mark the task terminated so the scheduler will not re-enqueue
+                 * it.  The check in os_pendsv_switch() (old_task->state ==
+                 * TASK_STATE_RUNNING) will be false and the task is skipped. */
+                task->state = TASK_STATE_TERMINATED;
+
+                /* Replant guard words so the guard check at the next PendSV
+                 * entry does not re-fire the hook for the same task. */
+                for (uint32_t i = 0; i < STACK_GUARD_WORDS; i++) {
+                    task->stack[i] = STACK_GUARD_MAGIC;
+                }
+
+                /* Remove from task registry so stats iteration skips it. */
+                for (int i = 0; i < MAX_TASKS; i++) {
+                    if (kernel.task_registry[i] == task) {
+                        kernel.task_registry[i] = NULL;
+                        break;
+                    }
+                }
+                if (kernel.task_count > 0U) {
+                    kernel.task_count--;
+                }
+
+                /* Pend a context switch.  The current task context (which may
+                 * still be executing on the stack we just killed) will be
+                 * abandoned at the next PendSV; the scheduler picks the next
+                 * ready task instead. */
+                os_pend_sv();
+            }
+            return;   /* do NOT spin — let the system continue */
+
+        case OVERFLOW_ACTION_HALT:
+        default:
+            /* Trigger a debug breakpoint.  Without a debugger attached on
+             * ARMv7-M this escalates to HardFault, which is intentional. */
+            __asm__ volatile("bkpt #1");
+            while (1);
+    }
 }
 
 /*===========================================================================

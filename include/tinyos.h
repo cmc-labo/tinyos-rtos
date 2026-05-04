@@ -471,12 +471,63 @@ bool os_task_stack_is_healthy(const tcb_t *task);
 
 /**
  * @brief Overflow hook — called from the scheduler when a guard violation is
- *        detected.  The default (weak) implementation halts with a breakpoint.
- *        Override this function in application code to log, reset, or take any
- *        other recovery action.
+ *        detected.  The default (weak) implementation executes the configured
+ *        overflow action (HALT / RESET / KILL_TASK) and writes a diagnostic
+ *        record before acting.  Override in application code to add custom
+ *        logging or additional recovery steps.
  * @param task  The task whose stack has overflowed.
  */
 void os_stack_overflow_hook(tcb_t *task);
+
+/* Magic written into .noinit record; validates it after a warm reset. */
+#define OS_OVERFLOW_RECORD_MAGIC  0x4F564657UL  /* ASCII "OVFW" */
+
+/**
+ * @brief Action taken when os_stack_overflow_hook() fires.
+ *
+ * OVERFLOW_ACTION_HALT      — trigger a debug breakpoint and spin forever.
+ *                             Default; safest for development with a debugger.
+ * OVERFLOW_ACTION_RESET     — write the diagnostic record to .noinit RAM, then
+ *                             issue an NVIC SystemReset.  On the next boot, call
+ *                             os_stack_overflow_get_record() to retrieve the info.
+ * OVERFLOW_ACTION_KILL_TASK — terminate the offending task and continue
+ *                             scheduling.  Useful when the overflow is isolated
+ *                             to a non-critical task and the rest of the system
+ *                             is still trusted.  The task slot becomes reusable.
+ */
+typedef enum {
+    OVERFLOW_ACTION_HALT      = 0,
+    OVERFLOW_ACTION_RESET     = 1,
+    OVERFLOW_ACTION_KILL_TASK = 2,
+} overflow_action_t;
+
+/**
+ * @brief Diagnostic snapshot written to .noinit RAM on overflow detection.
+ *        The .noinit section is not zeroed by Reset_Handler, so the record
+ *        persists across a soft reset (OVERFLOW_ACTION_RESET).
+ *        Validated by checking magic == OS_OVERFLOW_RECORD_MAGIC.
+ */
+typedef struct {
+    uint32_t          magic;           /**< OS_OVERFLOW_RECORD_MAGIC when valid   */
+    char              task_name[16];   /**< Name of the offending task            */
+    uint32_t          tick_count;      /**< System uptime (ticks) at detection    */
+    uint32_t          corrupted_words; /**< Guard words found corrupted (of 4)    */
+    uint32_t          stack_high_water;/**< Stack high-water mark before overflow */
+    overflow_action_t action_taken;    /**< Recovery action that was executed     */
+} os_overflow_record_t;
+
+/** Configure the recovery action (call before os_start(); default: HALT). */
+void os_stack_overflow_set_action(overflow_action_t action);
+
+/** Returns true if a valid overflow record from the previous boot is present. */
+bool os_stack_overflow_record_valid(void);
+
+/**
+ * @brief Copy the overflow record into *out and invalidate it (consumes it).
+ * @return true  — record copied; call once after boot to check for prior crash.
+ *         false — no valid record exists (first boot or already consumed).
+ */
+bool os_stack_overflow_get_record(os_overflow_record_t *out);
 
 /* Print all tasks statistics */
 void os_print_all_stats(void);

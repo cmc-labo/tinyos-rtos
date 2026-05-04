@@ -54,6 +54,16 @@ SECTIONS
         _ebss = .;
     } > RAM
 
+    /* Non-initialized data — NOT zeroed by Reset_Handler.
+     * Content survives a soft reset, making it suitable for post-mortem
+     * crash records (e.g. os_overflow_record_t). */
+    .noinit (NOLOAD) :
+    {
+        . = ALIGN(4);
+        *(.noinit*)
+        . = ALIGN(4);
+    } > RAM
+
     /* Stack (grows down from _estack) */
     .stack (NOLOAD) :
     {
