@@ -708,11 +708,11 @@ Discarded input sections
  .text.os_mpu_enable
                 0x0000000000000000       0x24 build/security.o
  .text.os_mpu_set_region
-                0x0000000000000000       0x7c build/security.o
+                0x0000000000000000       0x88 build/security.o
  .text.os_check_memory_access
                 0x0000000000000000        0x4 build/security.o
  .text.os_mpu_fault_handler
-                0x0000000000000000        0xc build/security.o
+                0x0000000000000000       0x1c build/security.o
  .text.os_verify_boot_integrity
                 0x0000000000000000        0x4 build/security.o
  .comment       0x0000000000000000       0x34 build/security.o
@@ -3227,33 +3227,33 @@ LOAD linker stubs
  .ARM.attributes
                 0x00000000000001d6       0x2e /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_info     0x0000000000000000     0x54af
+.debug_info     0x0000000000000000     0x5500
  .debug_info    0x0000000000000000      0x539 build/fault.o
  .debug_info    0x0000000000000539     0x2359 build/kernel.o
  .debug_info    0x0000000000002892      0x7e8 build/memory.o
  .debug_info    0x000000000000307a      0xa2d build/power.o
- .debug_info    0x0000000000003aa7      0x582 build/security.o
- .debug_info    0x0000000000004029      0x7fa build/timer.o
- .debug_info    0x0000000000004823      0x53d build/trace.o
- .debug_info    0x0000000000004d60      0x47d build/blink_led.o
- .debug_info    0x00000000000051dd       0x26 build/context_switch.o
- .debug_info    0x0000000000005203       0x22 build/startup.o
- .debug_info    0x0000000000005225      0x137 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_info    0x000000000000535c      0x153 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_info    0x0000000000003aa7      0x5d3 build/security.o
+ .debug_info    0x000000000000407a      0x7fa build/timer.o
+ .debug_info    0x0000000000004874      0x53d build/trace.o
+ .debug_info    0x0000000000004db1      0x47d build/blink_led.o
+ .debug_info    0x000000000000522e       0x26 build/context_switch.o
+ .debug_info    0x0000000000005254       0x22 build/startup.o
+ .debug_info    0x0000000000005276      0x137 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_info    0x00000000000053ad      0x153 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_abbrev   0x0000000000000000     0x1934
+.debug_abbrev   0x0000000000000000     0x193b
  .debug_abbrev  0x0000000000000000      0x24d build/fault.o
  .debug_abbrev  0x000000000000024d      0x591 build/kernel.o
  .debug_abbrev  0x00000000000007de      0x2db build/memory.o
  .debug_abbrev  0x0000000000000ab9      0x3ac build/power.o
- .debug_abbrev  0x0000000000000e65      0x24b build/security.o
- .debug_abbrev  0x00000000000010b0      0x329 build/timer.o
- .debug_abbrev  0x00000000000013d9      0x224 build/trace.o
- .debug_abbrev  0x00000000000015fd      0x1a2 build/blink_led.o
- .debug_abbrev  0x000000000000179f       0x14 build/context_switch.o
- .debug_abbrev  0x00000000000017b3       0x12 build/startup.o
- .debug_abbrev  0x00000000000017c5       0xb4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_abbrev  0x0000000000001879       0xbb /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_abbrev  0x0000000000000e65      0x252 build/security.o
+ .debug_abbrev  0x00000000000010b7      0x329 build/timer.o
+ .debug_abbrev  0x00000000000013e0      0x224 build/trace.o
+ .debug_abbrev  0x0000000000001604      0x1a2 build/blink_led.o
+ .debug_abbrev  0x00000000000017a6       0x14 build/context_switch.o
+ .debug_abbrev  0x00000000000017ba       0x12 build/startup.o
+ .debug_abbrev  0x00000000000017cc       0xb4 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_abbrev  0x0000000000001880       0xbb /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
 .debug_loc      0x0000000000000000     0x3be8
  .debug_loc     0x0000000000000000      0x119 build/fault.o
@@ -3304,21 +3304,21 @@ LOAD linker stubs
  .debug_ranges  0x0000000000000b78       0x20 build/blink_led.o
  .debug_ranges  0x0000000000000b98       0x20 build/startup.o
 
-.debug_line     0x0000000000000000     0x39c7
+.debug_line     0x0000000000000000     0x3a2a
  .debug_line    0x0000000000000000      0x306 build/fault.o
  .debug_line    0x0000000000000306     0x18f2 build/kernel.o
  .debug_line    0x0000000000001bf8      0x6d8 build/memory.o
  .debug_line    0x00000000000022d0      0x56a build/power.o
- .debug_line    0x000000000000283a      0x348 build/security.o
- .debug_line    0x0000000000002b82      0x59c build/timer.o
- .debug_line    0x000000000000311e      0x371 build/trace.o
- .debug_line    0x000000000000348f      0x122 build/blink_led.o
- .debug_line    0x00000000000035b1       0x69 build/context_switch.o
- .debug_line    0x000000000000361a       0x68 build/startup.o
- .debug_line    0x0000000000003682      0x1bf /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_line    0x0000000000003841      0x186 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_line    0x000000000000283a      0x3ab build/security.o
+ .debug_line    0x0000000000002be5      0x59c build/timer.o
+ .debug_line    0x0000000000003181      0x371 build/trace.o
+ .debug_line    0x00000000000034f2      0x122 build/blink_led.o
+ .debug_line    0x0000000000003614       0x69 build/context_switch.o
+ .debug_line    0x000000000000367d       0x68 build/startup.o
+ .debug_line    0x00000000000036e5      0x1bf /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_line    0x00000000000038a4      0x186 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
 
-.debug_str      0x0000000000000000     0x17df
+.debug_str      0x0000000000000000     0x17ec
  .debug_str     0x0000000000000000      0x3a0 build/fault.o
                                         0x413 (size before relaxing)
  .debug_str     0x00000000000003a0      0x875 build/kernel.o
@@ -3327,31 +3327,31 @@ LOAD linker stubs
                                         0x368 (size before relaxing)
  .debug_str     0x0000000000000d89      0x4bf build/power.o
                                         0x7ca (size before relaxing)
- .debug_str     0x0000000000001248      0x107 build/security.o
-                                        0x348 (size before relaxing)
- .debug_str     0x000000000000134f      0x19d build/timer.o
+ .debug_str     0x0000000000001248      0x114 build/security.o
+                                        0x35a (size before relaxing)
+ .debug_str     0x000000000000135c      0x19d build/timer.o
                                         0x47c (size before relaxing)
- .debug_str     0x00000000000014ec      0x110 build/trace.o
+ .debug_str     0x00000000000014f9      0x110 build/trace.o
                                         0x2dd (size before relaxing)
- .debug_str     0x00000000000015fc       0x4b build/blink_led.o
+ .debug_str     0x0000000000001609       0x4b build/blink_led.o
                                         0x3c5 (size before relaxing)
- .debug_str     0x0000000000001647       0x21 build/context_switch.o
+ .debug_str     0x0000000000001654       0x21 build/context_switch.o
                                          0x4b (size before relaxing)
- .debug_str     0x0000000000001668        0xe build/startup.o
+ .debug_str     0x0000000000001675        0xe build/startup.o
                                          0x44 (size before relaxing)
- .debug_str     0x0000000000001676      0x112 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_str     0x0000000000001683      0x112 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
                                         0x1b5 (size before relaxing)
- .debug_str     0x0000000000001788       0x57 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_str     0x0000000000001795       0x57 /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
                                         0x1cb (size before relaxing)
 
-.debug_frame    0x0000000000000000      0xc9c
+.debug_frame    0x0000000000000000      0xca0
  .debug_frame   0x0000000000000000       0xa4 build/fault.o
  .debug_frame   0x00000000000000a4      0x518 build/kernel.o
  .debug_frame   0x00000000000005bc       0xe0 build/memory.o
  .debug_frame   0x000000000000069c      0x238 build/power.o
- .debug_frame   0x00000000000008d4       0xa4 build/security.o
- .debug_frame   0x0000000000000978      0x180 build/timer.o
- .debug_frame   0x0000000000000af8       0xf4 build/trace.o
- .debug_frame   0x0000000000000bec       0x58 build/blink_led.o
- .debug_frame   0x0000000000000c44       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
- .debug_frame   0x0000000000000c70       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
+ .debug_frame   0x00000000000008d4       0xa8 build/security.o
+ .debug_frame   0x000000000000097c      0x180 build/timer.o
+ .debug_frame   0x0000000000000afc       0xf4 build/trace.o
+ .debug_frame   0x0000000000000bf0       0x58 build/blink_led.o
+ .debug_frame   0x0000000000000c48       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-memset.o)
+ .debug_frame   0x0000000000000c74       0x2c /usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/lib/thumb/v7e-m/nofp/libc.a(lib_a-strncpy.o)
