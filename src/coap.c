@@ -182,8 +182,8 @@ int coap_pdu_encode(const coap_pdu_t *pdu, uint8_t *buffer, size_t buffer_size) 
         const coap_option_t *opt = &pdu->options[i];
         uint16_t delta = opt->number - prev_option_num;
 
-        uint8_t delta_ext[2];
-        uint8_t length_ext[2];
+        uint8_t delta_ext[2]  = {0, 0};
+        uint8_t length_ext[2] = {0, 0};
         uint8_t delta_nibble = coap_encode_option_delta_length(delta_ext, delta);
         uint8_t length_nibble = coap_encode_option_delta_length(length_ext, opt->length);
 

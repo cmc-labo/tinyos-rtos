@@ -244,7 +244,7 @@ Discarded input sections
  .text.coap_pdu_get_option
                 0x0000000000000000       0x38 build/coap.o
  .text.coap_pdu_encode
-                0x0000000000000000      0x1a8 build/coap.o
+                0x0000000000000000      0x1c4 build/coap.o
  .text.coap_send_request_internal.part.0
                 0x0000000000000000      0x2f4 build/coap.o
  .text.coap_pdu_decode
@@ -293,10 +293,10 @@ Discarded input sections
  .debug_aranges
                 0x0000000000000000       0xd8 build/coap.o
  .debug_ranges  0x0000000000000000      0x580 build/coap.o
- .debug_line    0x0000000000000000     0x1349 build/coap.o
+ .debug_line    0x0000000000000000     0x1355 build/coap.o
  .debug_str     0x0000000000000000      0xf95 build/coap.o
  .comment       0x0000000000000000       0x34 build/coap.o
- .debug_frame   0x0000000000000000      0x37c build/coap.o
+ .debug_frame   0x0000000000000000      0x380 build/coap.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/coap.o
  .text          0x0000000000000000        0x0 build/fault.o
