@@ -83,6 +83,38 @@ static void mutex_pip_recalculate(mutex_t *mutex) {
 }
 
 /*===========================================================================
+ * Deadlock detection (Wait-For Graph cycle detection)
+ *===========================================================================*/
+
+/**
+ * Follow the wait-for chain starting from mutex->owner.
+ * Returns true if the chain loops back to waiter, indicating a deadlock cycle.
+ *
+ * Chain: waiter → mutex → mutex->owner → owner->waiting_on → that mutex's
+ *        owner → ... → waiter (cycle).
+ *
+ * Depth is bounded by MAX_TASKS so this is O(N) and cannot loop forever.
+ * Must be called inside a critical section (reads waiting_on / owner atomically).
+ */
+static bool deadlock_check(const tcb_t *waiter, const mutex_t *mutex) {
+    const tcb_t *node = mutex->owner;
+    for (uint32_t i = 0; i < MAX_TASKS; i++) {
+        if (node == NULL)             return false;  /* chain ends cleanly    */
+        if (node == waiter)           return true;   /* cycle detected        */
+        if (node->waiting_on == NULL) return false;  /* node is not blocked   */
+        node = node->waiting_on->owner;
+    }
+    return false;  /* depth limit — treat as no deadlock */
+}
+
+/* Default deadlock hook — halt with breakpoint so a debugger can inspect. */
+__attribute__((weak)) void os_deadlock_hook(tcb_t *waiter, mutex_t *blocked_on) {
+    (void)waiter;
+    (void)blocked_on;
+    while (1) { __asm__ volatile("bkpt #3"); }
+}
+
+/*===========================================================================
  * Mutex public API
  *===========================================================================*/
 
@@ -135,12 +167,23 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
         /*
          * True blocking wait with PIP.
          *
-         * 1. Inside critical section: boost owner, enqueue self, set BLOCKED.
+         * 1. Inside critical section: detect deadlock, boost owner, enqueue
+         *    self, set BLOCKED.
          * 2. Release critical section, yield (PendSV fires; BLOCKED → not re-enqueued).
          * 3. Wake: os_mutex_unlock() has already made us the owner before
          *    calling os_task_wakeup(), so we return OS_OK immediately.
          */
         cs = os_enter_critical();
+
+        /* Deadlock detection: set waiting_on before checking so that
+         * concurrent checks by other tasks can traverse the chain. */
+        current->waiting_on = mutex;
+        if (deadlock_check(current, mutex)) {
+            current->waiting_on = NULL;
+            os_exit_critical(cs);
+            os_deadlock_hook(current, mutex);
+            return OS_ERROR_DEADLOCK;
+        }
 
         /* PIP: boost the owner so it can finish faster. */
         if (current->priority < mutex->owner->priority) {
@@ -159,6 +202,7 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
         os_task_yield();
 
         /* ── Resumed: we are now the mutex owner ── */
+        current->waiting_on = NULL;
         trace_record_syscall(cur_name(), "mutex_lock");
         return OS_OK;
 
@@ -170,12 +214,25 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
          */
         uint32_t start = os_get_tick_count();
 
+        /* Deadlock detection: run once before spinning.
+         * Set waiting_on so that other tasks' chain traversal includes us. */
+        cs = os_enter_critical();
+        current->waiting_on = mutex;
+        bool dl = deadlock_check(current, mutex);
+        os_exit_critical(cs);
+        if (dl) {
+            current->waiting_on = NULL;
+            os_deadlock_hook(current, mutex);
+            return OS_ERROR_DEADLOCK;
+        }
+
         while (true) {
             cs = os_enter_critical();
 
             if (!mutex->locked) {
                 mutex->locked = true;
                 mutex->owner  = current;
+                current->waiting_on = NULL;
                 os_exit_critical(cs);
                 trace_record_syscall(cur_name(), "mutex_lock");
                 return OS_OK;
@@ -189,18 +246,8 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
             os_exit_critical(cs);
 
             if ((os_get_tick_count() - start) >= timeout) {
-                /* Undo the PIP boost we applied during the spin.
-                 *
-                 * The timed path never adds itself to mutex->wait_queue, so
-                 * mutex_pip_recalculate() will either:
-                 *   - restore owner to base_priority  (no other waiters), or
-                 *   - keep the boost at the level of the highest remaining
-                 *     WAIT_FOREVER waiter still in the queue.
-                 *
-                 * Without this the owner retains an artificially high priority
-                 * long after the waiter has given up, causing priority inversion
-                 * for unrelated tasks. */
                 cs = os_enter_critical();
+                current->waiting_on = NULL;
                 if (mutex->locked && mutex->owner != NULL) {
                     mutex_pip_recalculate(mutex);
                 }
@@ -1418,13 +1465,4 @@ os_error_t os_cond_broadcast(cond_var_t *cond) {
     /* Wake up all waiting tasks */
     while (cond->wait_queue != NULL) {
         tcb_t *task_to_wake = cond->wait_queue;
-        cond->wait_queue = task_to_wake->next;
-        task_to_wake->next = NULL;
-        cond->waiting_count--;
-        os_task_wakeup(task_to_wake);   /* BLOCKED → READY; may pend PendSV */
-    }
-
-    os_exit_critical(state);
-
-    return OS_OK;
-}
+       

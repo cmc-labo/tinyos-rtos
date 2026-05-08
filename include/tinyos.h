@@ -55,6 +55,9 @@ typedef enum {
     TASK_STATE_TERMINATED
 } task_state_t;
 
+/* Forward declaration: tcb_t references mutex_t, and mutex_t references tcb_t */
+typedef struct mutex_struct mutex_t;
+
 /* Task control block */
 typedef struct task_control_block {
     uint32_t *stack_ptr;                /* Current stack pointer */
@@ -79,6 +82,8 @@ typedef struct task_control_block {
     /* Message-queue wait state (valid only while task is BLOCKED on a queue) */
     const void *pending_msg;           /* Item to send — written by blocked senders    */
     void       *recv_buf;              /* Receive buffer — written by blocked receivers */
+
+    mutex_t    *waiting_on;            /* Mutex this task is blocked on (NULL = not waiting) */
 
     struct task_control_block *next;    /* Next task in queue (ready, delay, or wait)  */
 } tcb_t;
@@ -119,7 +124,8 @@ typedef enum {
     OS_ERROR_PERMISSION_DENIED = -5,
     OS_ERROR_NOT_IMPLEMENTED = -6,
     OS_ERROR_NO_RESOURCE = -7,
-    OS_ERROR_NOT_INITIALIZED = -8
+    OS_ERROR_NOT_INITIALIZED = -8,
+    OS_ERROR_DEADLOCK        = -9  /**< Mutex lock would cause a deadlock cycle */
 } os_error_t;
 
 /* Short-form aliases used throughout the implementation */
@@ -135,7 +141,7 @@ typedef enum {
 #define OS_WAIT_FOREVER         0U
 
 /* Mutex for synchronization */
-typedef struct {
+typedef struct mutex_struct {
     volatile bool   locked;
     tcb_t          *owner;
     task_priority_t ceiling_priority;
@@ -603,6 +609,22 @@ uint32_t os_timer_get_remaining_ms(os_timer_t *timer);
 
 /* Process expired timers — called automatically from SysTick via os_scheduler() */
 void os_timer_process(void);
+
+/*
+ * Deadlock Detection API
+ */
+
+/**
+ * @brief Called when a deadlock cycle is detected in os_mutex_lock().
+ *
+ * The default (weak) implementation halts with a breakpoint.
+ * Override in application code to log the situation or take recovery action.
+ * The offending os_mutex_lock() call returns OS_ERROR_DEADLOCK to the caller.
+ *
+ * @param waiter     Task that tried to lock the mutex and would cause a cycle.
+ * @param blocked_on Mutex that would complete the deadlock cycle.
+ */
+void os_deadlock_hook(tcb_t *waiter, mutex_t *blocked_on);
 
 /*
  * Security API
