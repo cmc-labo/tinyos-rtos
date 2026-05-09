@@ -415,9 +415,27 @@ os_error_t os_task_delete(tcb_t *task) {
 
     uint32_t state = os_enter_critical();
 
-    /* Remove from ready queue or delay queue (task is in exactly one). */
     scheduler_remove_task(task);
     delay_queue_remove(task);
+
+    /* If task was blocked on a mutex with a timed lock, evict it from the
+     * mutex wait queue so the owner does not try to wake a dead task. */
+    if (task->waiting_on != NULL) {
+        mutex_t *m = task->waiting_on;
+        task->waiting_on = NULL;
+        tcb_t **pp = &m->wait_queue;
+        while (*pp != NULL) {
+            if (*pp == task) { *pp = task->next; task->next = NULL; break; }
+            pp = &(*pp)->next;
+        }
+        if (m->owner != NULL) {
+            task_priority_t p = (m->wait_queue != NULL)
+                                ? m->wait_queue->priority
+                                : m->owner->base_priority;
+            if (p > m->owner->priority) scheduler_reprioritize(m->owner, p);
+        }
+    }
+
     task->state = TASK_STATE_TERMINATED;
 
     /* Remove from registry */
@@ -451,9 +469,26 @@ os_error_t os_task_suspend(tcb_t *task) {
 
     uint32_t state = os_enter_critical();
 
-    /* Remove from ready queue or delay queue (task is in exactly one). */
     scheduler_remove_task(task);
     delay_queue_remove(task);
+
+    /* Same cleanup as delete: evict from mutex wait queue if applicable. */
+    if (task->waiting_on != NULL) {
+        mutex_t *m = task->waiting_on;
+        task->waiting_on = NULL;
+        tcb_t **pp = &m->wait_queue;
+        while (*pp != NULL) {
+            if (*pp == task) { *pp = task->next; task->next = NULL; break; }
+            pp = &(*pp)->next;
+        }
+        if (m->owner != NULL) {
+            task_priority_t p = (m->wait_queue != NULL)
+                                ? m->wait_queue->priority
+                                : m->owner->base_priority;
+            if (p > m->owner->priority) scheduler_reprioritize(m->owner, p);
+        }
+    }
+
     task->state = TASK_STATE_SUSPENDED;
     bool is_current = (task == kernel.current_task);
 
@@ -653,50 +688,105 @@ static void scheduler_remove_task(tcb_t *task) {
 
 /**
  * Insert a task into the delay queue in ascending wake_tick order.
+ * Uses delay_next so that a task can simultaneously occupy a mutex/sem wait
+ * queue (via next) and the delay queue (via delay_next).
  * Must be called inside a critical section.
  */
 static void delay_queue_insert(tcb_t *task) {
     tcb_t **pp = &kernel.delay_queue;
-    /* Walk until we find the first entry whose wake_tick exceeds ours. */
     while (*pp != NULL &&
            (int32_t)((*pp)->wake_tick - task->wake_tick) <= 0) {
-        pp = &(*pp)->next;
+        pp = &(*pp)->delay_next;
     }
-    task->next = *pp;
+    task->delay_next = *pp;
     *pp = task;
 }
 
 /**
- * Remove a specific task from the delay queue (e.g. on delete/suspend).
+ * Remove a specific task from the delay queue (e.g. on delete/suspend/acquire).
+ * No-op if the task is not currently in the delay queue.
  * Must be called inside a critical section.
  */
 static void delay_queue_remove(tcb_t *task) {
     tcb_t **pp = &kernel.delay_queue;
     while (*pp != NULL) {
         if (*pp == task) {
-            *pp = task->next;
-            task->next = NULL;
+            *pp = task->delay_next;
+            task->delay_next = NULL;
             return;
         }
-        pp = &(*pp)->next;
+        pp = &(*pp)->delay_next;
     }
 }
 
 /**
  * Wake up all tasks whose wake_tick has been reached.
  * Called from os_scheduler() (SysTick ISR) — must be ISR-safe.
- * Uses (int32_t) subtraction to handle tick wraparound correctly.
+ *
+ * If the expiring task was blocked on a mutex (waiting_on != NULL), this is a
+ * timed-lock timeout: remove it from the mutex wait queue and recalculate PIP
+ * for the mutex owner before making the task runnable.
  */
 static void delay_queue_tick(void) {
     while (kernel.delay_queue != NULL &&
            (int32_t)(kernel.tick_count - kernel.delay_queue->wake_tick) >= 0) {
         tcb_t *task = kernel.delay_queue;
-        kernel.delay_queue = task->next;
-        task->next = NULL;
-        /* Wake the task — this also triggers PendSV if it outranks the
-         * currently running task (handled inside scheduler_add_ready_task). */
+        kernel.delay_queue = task->delay_next;
+        task->delay_next = NULL;
+
+        /* Timed mutex-lock timeout: evict from mutex wait queue and fix PIP. */
+        if (task->waiting_on != NULL) {
+            mutex_t *m = task->waiting_on;
+            task->waiting_on = NULL;
+
+            /* Remove from the mutex's wait queue (linked via next). */
+            tcb_t **pp = &m->wait_queue;
+            while (*pp != NULL) {
+                if (*pp == task) {
+                    *pp = task->next;
+                    task->next = NULL;
+                    break;
+                }
+                pp = &(*pp)->next;
+            }
+
+            /* Recalculate PIP: the owner may have been boosted for this waiter.
+             * scheduler_reprioritize is safe from ISR context — it only moves
+             * the task within the ready queue and updates the priority value. */
+            if (m->owner != NULL) {
+                task_priority_t new_prio = (m->wait_queue != NULL)
+                    ? m->wait_queue->priority   /* boost to next best waiter */
+                    : m->owner->base_priority;  /* no more waiters — restore  */
+                if (new_prio > m->owner->priority) {
+                    /* Priority decrease is safe: scheduler_reprioritize handles
+                     * READY re-enqueue; RUNNING tasks just get the new value. */
+                    scheduler_reprioritize(m->owner, new_prio);
+                }
+            }
+        }
+
         scheduler_add_ready_task(task);
     }
+}
+
+/**
+ * Arm a timeout for a task that is about to block on a synchronisation object.
+ * The caller must have already set task->wake_tick before calling.
+ * Must be called inside a critical section.
+ * Called from sync.c for timed mutex/semaphore blocking.
+ */
+void os_delay_queue_arm(tcb_t *task) {
+    delay_queue_insert(task);
+}
+
+/**
+ * Disarm a previously armed timeout (e.g. the resource was acquired before the
+ * deadline, so we no longer need the wakeup).
+ * No-op if the task is not in the delay queue.
+ * Must be called inside a critical section.
+ */
+void os_delay_queue_disarm(tcb_t *task) {
+    delay_queue_remove(task);
 }
 
 /**

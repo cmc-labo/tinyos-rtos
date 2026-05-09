@@ -9,6 +9,12 @@
 #include "tinyos/trace.h"
 #include <string.h>
 
+/* Kernel-internal functions for arming/disarming the delay queue on behalf of
+ * a task that is blocking on a synchronisation object with a finite timeout.
+ * Declared here to avoid adding them to the public tinyos.h API. */
+extern void os_delay_queue_arm(tcb_t *task);
+extern void os_delay_queue_disarm(tcb_t *task);
+
 /* Convenience: get the current task name safely (may be NULL before scheduler starts). */
 static const char *cur_name(void) {
     tcb_t *t = os_task_get_current();
@@ -208,55 +214,67 @@ os_error_t os_mutex_lock(mutex_t *mutex, uint32_t timeout) {
 
     } else {
         /*
-         * Timed spin-loop with PIP.
-         * Simpler implementation: keeps trying until the mutex is free or
-         * the timeout expires, boosting the owner's priority each iteration.
+         * Timed blocking wait with PIP — true sleep, zero spin.
+         *
+         * The task is inserted into BOTH the mutex wait queue (via next) AND
+         * the delay queue (via delay_next).  Whichever fires first wins:
+         *
+         *   Mutex unlocked first:
+         *     os_mutex_unlock() pops us from the wait queue, disarms the
+         *     delay queue entry, transfers ownership, and wakes us.
+         *     On resume: mutex->owner == current → return OS_OK.
+         *
+         *   Deadline reached first (SysTick → delay_queue_tick):
+         *     delay_queue_tick() removes us from the mutex wait queue,
+         *     recalculates PIP for the owner, and schedules us as READY.
+         *     On resume: mutex->owner != current → return OS_ERROR_TIMEOUT.
          */
-        uint32_t start = os_get_tick_count();
-
-        /* Deadlock detection: run once before spinning.
-         * Set waiting_on so that other tasks' chain traversal includes us. */
         cs = os_enter_critical();
+
+        /* Deadlock detection before committing to block. */
         current->waiting_on = mutex;
-        bool dl = deadlock_check(current, mutex);
-        os_exit_critical(cs);
-        if (dl) {
+        if (deadlock_check(current, mutex)) {
             current->waiting_on = NULL;
+            os_exit_critical(cs);
             os_deadlock_hook(current, mutex);
             return OS_ERROR_DEADLOCK;
         }
 
-        while (true) {
-            cs = os_enter_critical();
-
-            if (!mutex->locked) {
-                mutex->locked = true;
-                mutex->owner  = current;
-                current->waiting_on = NULL;
-                os_exit_critical(cs);
-                trace_record_syscall(cur_name(), "mutex_lock");
-                return OS_OK;
-            }
-
-            /* PIP boost each iteration in case owner's priority changed. */
-            if (current->priority < mutex->owner->priority) {
-                os_task_raise_priority(mutex->owner, current->priority);
-            }
-
-            os_exit_critical(cs);
-
-            if ((os_get_tick_count() - start) >= timeout) {
-                cs = os_enter_critical();
-                current->waiting_on = NULL;
-                if (mutex->locked && mutex->owner != NULL) {
-                    mutex_pip_recalculate(mutex);
-                }
-                os_exit_critical(cs);
-                return OS_ERROR_TIMEOUT;
-            }
-
-            os_task_yield();
+        /* PIP boost so the owner can release sooner. */
+        if (current->priority < mutex->owner->priority) {
+            os_task_raise_priority(mutex->owner, current->priority);
         }
+
+        /* Enqueue in mutex wait queue (priority-sorted, via next). */
+        mutex_wait_enqueue(mutex, current);
+
+        /* Arm the timeout in the delay queue (via delay_next). */
+        current->wake_tick = os_get_tick_count() + timeout;
+        os_delay_queue_arm(current);
+
+        current->state = TASK_STATE_BLOCKED;
+        os_exit_critical(cs);
+
+        /* Park until either the mutex is transferred or the deadline fires. */
+        os_task_yield();
+
+        /* ── Resumed ── determine outcome ─────────────────────────────── */
+        cs = os_enter_critical();
+        bool acquired = (mutex->owner == current);
+        if (acquired) {
+            /* Woken by os_mutex_unlock — disarm in case it wasn't removed yet.
+             * (os_mutex_unlock already called disarm, so this is a safe no-op.) */
+            current->waiting_on = NULL;
+        }
+        /* If !acquired: delay_queue_tick already cleared waiting_on and
+         * removed us from the mutex wait queue. */
+        os_exit_critical(cs);
+
+        if (acquired) {
+            trace_record_syscall(cur_name(), "mutex_lock");
+            return OS_OK;
+        }
+        return OS_ERROR_TIMEOUT;
     }
 }
 
@@ -293,15 +311,17 @@ os_error_t os_mutex_unlock(mutex_t *mutex) {
         mutex->wait_queue   = next_owner->next;
         next_owner->next    = NULL;
 
+        /* Cancel any pending timeout for this waiter — it won the mutex so
+         * the delay queue entry is no longer needed. Safe no-op if the waiter
+         * had no timeout (WAIT_FOREVER path never armed the delay queue). */
+        os_delay_queue_disarm(next_owner);
+        next_owner->waiting_on = NULL;
+
         /* Hand over ownership BEFORE waking the waiter so that when
          * it resumes in os_mutex_lock() it already owns the mutex. */
         mutex->owner = next_owner;
         /* mutex->locked stays true — ownership is transferred, not released. */
 
-        /* Recalculate our own inherited priority now that we released.
-         * (We are no longer the owner, so pass a temporary NULL owner to
-         *  avoid touching the new owner's priority here — we'll let
-         *  mutex_pip_recalculate handle the new owner's waiters.) */
         current->priority = current->base_priority;   /* restore ours inline */
 
         /* Recalculate PIP for the NEW owner based on remaining waiters. */
@@ -1465,4 +1485,13 @@ os_error_t os_cond_broadcast(cond_var_t *cond) {
     /* Wake up all waiting tasks */
     while (cond->wait_queue != NULL) {
         tcb_t *task_to_wake = cond->wait_queue;
-       
+        cond->wait_queue = task_to_wake->next;
+        task_to_wake->next = NULL;
+        cond->waiting_count--;
+        os_task_wakeup(task_to_wake);   /* BLOCKED → READY; may pend PendSV */
+    }
+
+    os_exit_critical(state);
+
+    return OS_OK;
+}

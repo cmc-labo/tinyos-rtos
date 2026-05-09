@@ -85,7 +85,8 @@ typedef struct task_control_block {
 
     mutex_t    *waiting_on;            /* Mutex this task is blocked on (NULL = not waiting) */
 
-    struct task_control_block *next;    /* Next task in queue (ready, delay, or wait)  */
+    struct task_control_block *next;       /* Link for: ready queue, mutex/sem/event wait queues */
+    struct task_control_block *delay_next; /* Link for: delay queue only (separate from next)    */
 } tcb_t;
 
 /* Task statistics */
