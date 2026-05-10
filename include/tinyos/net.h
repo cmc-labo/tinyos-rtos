@@ -17,11 +17,29 @@
  * Network Configuration
  *===========================================================================*/
 
-#define NET_MAX_SOCKETS         8       /* Maximum number of sockets */
-#define NET_BUFFER_SIZE         1500    /* MTU size */
-#define NET_MAX_BUFFERS         8       /* Number of network buffers */
-#define NET_TCP_MAX_CONNECTIONS 4       /* Maximum TCP connections */
-#define NET_UDP_MAX_SOCKETS     4       /* Maximum UDP sockets */
+#define NET_MAX_SOCKETS         8       /* Maximum number of sockets        */
+#define NET_BUFFER_SIZE         1500    /* Ethernet MTU (bytes)             */
+#define NET_MAX_BUFFERS         8       /* Legacy: kept for reference       */
+#define NET_TCP_MAX_CONNECTIONS 4       /* Maximum TCP connections          */
+#define NET_UDP_MAX_SOCKETS     4       /* Maximum UDP sockets              */
+
+/*---------------------------------------------------------------------------
+ * Dynamic buffer pool — three size classes.
+ *
+ *  Small  (128 B, ×8): ARP, ICMP echo, DNS queries, CoAP tokens
+ *  Medium (512 B, ×6): HTTP headers, DNS replies, most UDP payloads
+ *  Large (1500 B, ×4): full Ethernet MTU frames
+ *
+ *  Memory budget: 8×128 + 6×512 + 4×1500 = 10 112 B
+ *  vs. old pool:  8×1500             = 12 000 B  (saves ~1.9 KB)
+ *  Total descriptors: 18 (vs. 8) — more concurrency, less waste.
+ *---------------------------------------------------------------------------*/
+#define NET_BUF_SMALL           128U
+#define NET_BUF_SMALL_COUNT     8U
+#define NET_BUF_MEDIUM          512U
+#define NET_BUF_MEDIUM_COUNT    6U
+#define NET_BUF_LARGE           NET_BUFFER_SIZE   /* 1500 B */
+#define NET_BUF_LARGE_COUNT     4U
 
 /*===========================================================================
  * MAC Address (6 bytes)
@@ -47,13 +65,40 @@ typedef struct {
  * Network Buffer Management
  *===========================================================================*/
 
+/**
+ * Network buffer descriptor.
+ *
+ * data     — points into the size-class storage array (not embedded).
+ * length   — bytes of valid payload currently in the buffer.
+ * offset   — headroom: valid payload starts at data[offset].
+ *            Allows prepending headers (e.g. IP → Ethernet) without copying.
+ * capacity — usable bytes at data[] (equals the owning size class).
+ * ref_count— reference count; buffer is returned to its pool when this
+ *            reaches zero.  Use net_buffer_ref() to share a buffer between
+ *            protocol layers without copying.
+ * next     — buffer chain link for scatter/gather or fragmented packets.
+ */
 typedef struct net_buffer {
-    uint8_t data[NET_BUFFER_SIZE];
-    uint16_t length;
-    uint16_t offset;
+    uint8_t           *data;
+    uint16_t           length;
+    uint16_t           offset;
+    uint16_t           capacity;
+    uint8_t            ref_count;
     struct net_buffer *next;
-    bool in_use;
 } net_buffer_t;
+
+/**
+ * Buffer pool statistics — one set of counters per size class.
+ * Index 0 = small, 1 = medium, 2 = large.
+ */
+typedef struct {
+    uint32_t alloc_count[3];   /**< Total successful allocations per class    */
+    uint32_t free_count[3];    /**< Total frees (ref_count → 0) per class     */
+    uint32_t wait_count[3];    /**< Allocations that had to block per class   */
+    uint32_t timeout_count;    /**< Allocations that timed out (returned NULL)*/
+    uint8_t  in_use[3];        /**< Buffers currently allocated per class     */
+    uint8_t  peak[3];          /**< High-water mark per class                 */
+} net_buf_stats_t;
 
 /*===========================================================================
  * Network Interface Configuration
@@ -126,6 +171,53 @@ typedef enum {
     TCP_LAST_ACK,
     TCP_TIME_WAIT
 } tcp_state_t;
+
+/*===========================================================================
+ * Buffer Pool API
+ *===========================================================================*/
+
+/**
+ * @brief Allocate a buffer large enough to hold at least min_size bytes.
+ *
+ * Selects the tightest-fitting size class (small → medium → large).
+ * Blocks the calling task for up to timeout_ms ticks if the class is
+ * temporarily exhausted.  Pass OS_WAIT_FOREVER (0) to block indefinitely.
+ *
+ * @param min_size   Minimum payload capacity needed (bytes).
+ * @param timeout_ms Ticks to wait before giving up; OS_WAIT_FOREVER = ∞.
+ * @return Pointer to buffer, or NULL if timeout expires or min_size > NET_BUF_LARGE.
+ */
+net_buffer_t *net_buffer_alloc_size(uint16_t min_size, uint32_t timeout_ms);
+
+/**
+ * @brief Allocate a large (MTU-sized) buffer, blocking indefinitely.
+ *        Kept for backwards compatibility with existing callers.
+ */
+net_buffer_t *net_buffer_alloc(void);
+
+/**
+ * @brief Increment the reference count of a buffer (zero-copy sharing).
+ *
+ * Allows the same buffer to be handed to multiple protocol layers without
+ * copying.  Each recipient must eventually call net_buffer_free().
+ *
+ * @param buf  Buffer to reference.
+ * @return     The same buf pointer (for assignment convenience).
+ */
+net_buffer_t *net_buffer_ref(net_buffer_t *buf);
+
+/**
+ * @brief Release a reference.  Buffer is returned to its pool when
+ *        ref_count reaches zero.
+ * @param buf  Buffer to release (NULL is a safe no-op).
+ */
+void net_buffer_free(net_buffer_t *buf);
+
+/**
+ * @brief Copy statistics snapshot for all three size classes.
+ * @param stats  Output structure; must not be NULL.
+ */
+void net_buffer_get_stats(net_buf_stats_t *stats);
 
 /*===========================================================================
  * Network Statistics

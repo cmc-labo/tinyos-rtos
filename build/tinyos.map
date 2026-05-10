@@ -1264,12 +1264,18 @@ Discarded input sections
  .bss           0x0000000000000000        0x0 build/network.o
  .text.network_task_func
                 0x0000000000000000       0x40 build/network.o
+ .text.net_buffer_alloc_size
+                0x0000000000000000       0xa0 build/network.o
  .text.net_buffer_alloc
-                0x0000000000000000       0x38 build/network.o
+                0x0000000000000000        0xc build/network.o
+ .text.net_buffer_ref
+                0x0000000000000000       0x18 build/network.o
  .text.net_buffer_free
-                0x0000000000000000       0x38 build/network.o
+                0x0000000000000000       0x68 build/network.o
+ .text.net_buffer_get_stats
+                0x0000000000000000       0x60 build/network.o
  .text.net_init
-                0x0000000000000000       0xb4 build/network.o
+                0x0000000000000000      0x18c build/network.o
  .rodata.net_start.str1.4
                 0x0000000000000000        0x9 build/network.o
  .text.net_start
@@ -1300,30 +1306,39 @@ Discarded input sections
                 0x0000000000000000       0x10 build/network.o
  .text.net_stats_update
                 0x0000000000000000        0x4 build/network.o
- .bss.buffer_free_list
+ .bss.buf_alloc_failures
                 0x0000000000000000        0x4 build/network.o
- .bss.buffer_mutex
-                0x0000000000000000       0x10 build/network.o
- .bss.buffer_pool
-                0x0000000000000000     0x2f40 build/network.o
  .bss.current_config
                 0x0000000000000000       0x16 build/network.o
  .bss.current_driver
                 0x0000000000000000        0x4 build/network.o
+ .bss.large_descs
+                0x0000000000000000       0x40 build/network.o
+ .bss.large_storage
+                0x0000000000000000     0x1770 build/network.o
+ .bss.medium_descs
+                0x0000000000000000       0x60 build/network.o
+ .bss.medium_storage
+                0x0000000000000000      0xc00 build/network.o
  .bss.net_statistics
                 0x0000000000000000       0x3c build/network.o
  .bss.network_task
-                0x0000000000000000      0x44c build/network.o
- .debug_info    0x0000000000000000      0xdab build/network.o
- .debug_abbrev  0x0000000000000000      0x3a3 build/network.o
- .debug_loc     0x0000000000000000      0x72c build/network.o
+                0x0000000000000000      0x454 build/network.o
+ .bss.pool      0x0000000000000000       0x60 build/network.o
+ .bss.small_descs
+                0x0000000000000000       0x80 build/network.o
+ .bss.small_storage
+                0x0000000000000000      0x400 build/network.o
+ .debug_info    0x0000000000000000     0x1409 build/network.o
+ .debug_abbrev  0x0000000000000000      0x45c build/network.o
+ .debug_loc     0x0000000000000000      0xb8f build/network.o
  .debug_aranges
-                0x0000000000000000       0xa8 build/network.o
- .debug_ranges  0x0000000000000000      0x170 build/network.o
- .debug_line    0x0000000000000000      0x671 build/network.o
- .debug_str     0x0000000000000000      0x7e8 build/network.o
+                0x0000000000000000       0xc0 build/network.o
+ .debug_ranges  0x0000000000000000      0x1d0 build/network.o
+ .debug_line    0x0000000000000000      0x9ba build/network.o
+ .debug_str     0x0000000000000000      0x9d4 build/network.o
  .comment       0x0000000000000000       0x34 build/network.o
- .debug_frame   0x0000000000000000      0x1d8 build/network.o
+ .debug_frame   0x0000000000000000      0x248 build/network.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/network.o
  .text          0x0000000000000000        0x0 build/socket.o

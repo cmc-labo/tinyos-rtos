@@ -10,11 +10,6 @@
  * Internal Data Structures
  *===========================================================================*/
 
-/* Network buffer pool */
-static net_buffer_t buffer_pool[NET_MAX_BUFFERS];
-static mutex_t buffer_mutex;
-static net_buffer_t *buffer_free_list;
-
 /* Network driver */
 static net_driver_t *current_driver = NULL;
 
@@ -39,63 +34,215 @@ extern void net_udp_init(void);
 extern void net_tcp_init(void);
 
 /*===========================================================================
- * Network Buffer Management
+ * Dynamic Buffer Pool — three size classes
+ *
+ * Each class has:
+ *   - A contiguous storage array (BSS)
+ *   - A descriptor array (one net_buffer_t per slot, data ptr into storage)
+ *   - A free-list head protected by a critical section
+ *   - A counting semaphore (count = available buffers)
+ *     → semaphore_wait blocks the caller when the class is exhausted
+ *     → semaphore_post wakes blocked allocators on free
+ *
+ * ref_count lifecycle:
+ *   alloc → ref_count = 1
+ *   ref   → ref_count++       (zero-copy share)
+ *   free  → ref_count--;  if ref_count == 0: return to free list + sem_post
+ *===========================================================================*/
+
+typedef enum {
+    CLS_SMALL  = 0,
+    CLS_MEDIUM = 1,
+    CLS_LARGE  = 2,
+    CLS_COUNT  = 3
+} buf_class_t;
+
+/* Per-class runtime state */
+typedef struct {
+    net_buffer_t  *free_head;       /* free-list head (critical-section protected) */
+    semaphore_t    sem;             /* counts available buffers; blocks on alloc    */
+    uint16_t       buf_size;        /* payload capacity of each buffer in this class*/
+    uint8_t        total;           /* total buffers in this class                  */
+    uint8_t        in_use;          /* currently allocated                          */
+    uint8_t        peak;            /* high-water mark                              */
+    uint32_t       alloc_count;     /* cumulative successful allocs                 */
+    uint32_t       free_count;      /* cumulative frees (ref_count → 0)             */
+    uint32_t       wait_count;      /* allocs that had to wait on semaphore         */
+} buf_pool_t;
+
+static buf_pool_t pool[CLS_COUNT];
+
+/* Backing storage — 8-byte aligned, in BSS */
+static uint8_t small_storage [NET_BUF_SMALL_COUNT ][NET_BUF_SMALL ] __attribute__((aligned(8)));
+static uint8_t medium_storage[NET_BUF_MEDIUM_COUNT][NET_BUF_MEDIUM] __attribute__((aligned(8)));
+static uint8_t large_storage [NET_BUF_LARGE_COUNT ][NET_BUF_LARGE ] __attribute__((aligned(8)));
+
+/* Buffer descriptors — separate from storage so next/ref_count don't eat payload */
+static net_buffer_t small_descs [NET_BUF_SMALL_COUNT ];
+static net_buffer_t medium_descs[NET_BUF_MEDIUM_COUNT];
+static net_buffer_t large_descs [NET_BUF_LARGE_COUNT ];
+
+/* Combined alloc-failure counter (timeout or size too large for any class) */
+static uint32_t buf_alloc_failures;
+
+/*---------------------------------------------------------------------------
+ * Helpers
+ *---------------------------------------------------------------------------*/
+
+/* Return which class owns buf based on its capacity field. */
+static buf_class_t buf_class_of(const net_buffer_t *buf) {
+    if (buf->capacity <= NET_BUF_SMALL)  return CLS_SMALL;
+    if (buf->capacity <= NET_BUF_MEDIUM) return CLS_MEDIUM;
+    return CLS_LARGE;
+}
+
+/* Wire descriptors to storage and build the free list for one class. */
+static void pool_class_init(buf_class_t cls,
+                            net_buffer_t *descs, uint8_t *storage_base,
+                            uint8_t count, uint16_t buf_size) {
+    pool[cls].buf_size   = buf_size;
+    pool[cls].total      = count;
+    pool[cls].in_use     = 0;
+    pool[cls].peak       = 0;
+    pool[cls].alloc_count = 0;
+    pool[cls].free_count  = 0;
+    pool[cls].wait_count  = 0;
+    pool[cls].free_head  = NULL;
+    os_semaphore_init(&pool[cls].sem, (int32_t)count);
+
+    for (uint8_t i = 0; i < count; i++) {
+        descs[i].data      = storage_base + (size_t)i * buf_size;
+        descs[i].capacity  = buf_size;
+        descs[i].length    = 0;
+        descs[i].offset    = 0;
+        descs[i].ref_count = 0;
+        descs[i].next      = pool[cls].free_head;
+        pool[cls].free_head = &descs[i];
+    }
+}
+
+/*===========================================================================
+ * Network Buffer Management — public API
  *===========================================================================*/
 
 /**
- * @brief Initialize network buffer pool
+ * @brief Allocate a buffer of at least min_size bytes.
+ *
+ * Picks the tightest-fitting class and blocks for up to timeout_ms ticks
+ * if the class is currently exhausted.
  */
-static void net_buffer_pool_init(void) {
-    os_mutex_init(&buffer_mutex);
-
-    buffer_free_list = &buffer_pool[0];
-    for (int i = 0; i < NET_MAX_BUFFERS; i++) {
-        buffer_pool[i].in_use = false;
-        buffer_pool[i].length = 0;
-        buffer_pool[i].offset = 0;
-        buffer_pool[i].next = (i + 1 < NET_MAX_BUFFERS) ? &buffer_pool[i + 1] : NULL;
-    }
-}
-
-/**
- * @brief Allocate network buffer
- * @return Pointer to buffer or NULL if none available
- */
-net_buffer_t *net_buffer_alloc(void) {
-    os_mutex_lock(&buffer_mutex, OS_WAIT_FOREVER);
-
-    net_buffer_t *buf = buffer_free_list;
-    if (buf != NULL) {
-        buffer_free_list = buf->next;
-        buf->in_use = true;
-        buf->length = 0;
-        buf->offset = 0;
-        buf->next = NULL;
+net_buffer_t *net_buffer_alloc_size(uint16_t min_size, uint32_t timeout_ms) {
+    /* Select tightest-fitting class */
+    buf_class_t cls;
+    if      (min_size <= NET_BUF_SMALL)  cls = CLS_SMALL;
+    else if (min_size <= NET_BUF_MEDIUM) cls = CLS_MEDIUM;
+    else if (min_size <= NET_BUF_LARGE)  cls = CLS_LARGE;
+    else {
+        uint32_t cs = os_enter_critical();
+        buf_alloc_failures++;
+        os_exit_critical(cs);
+        return NULL;  /* request exceeds maximum buffer size */
     }
 
-    os_mutex_unlock(&buffer_mutex);
+    /* Block until a buffer of this class is available (or timeout). */
+    bool immediate = (pool[cls].in_use < pool[cls].total);
+    if (os_semaphore_wait(&pool[cls].sem, timeout_ms) != OS_OK) {
+        uint32_t cs = os_enter_critical();
+        buf_alloc_failures++;
+        os_exit_critical(cs);
+        return NULL;
+    }
 
+    /* Grab from free list (guaranteed non-empty after semaphore acquired). */
+    uint32_t cs = os_enter_critical();
+
+    if (!immediate) pool[cls].wait_count++;
+
+    net_buffer_t *buf   = pool[cls].free_head;
+    pool[cls].free_head = buf->next;
+    buf->next           = NULL;
+    buf->length         = 0;
+    buf->offset         = 0;
+    buf->ref_count      = 1;
+
+    pool[cls].in_use++;
+    if (pool[cls].in_use > pool[cls].peak) pool[cls].peak = pool[cls].in_use;
+    pool[cls].alloc_count++;
+
+    os_exit_critical(cs);
     return buf;
 }
 
-/**
- * @brief Free network buffer
- * @param buf Buffer to free
- */
+/** Backwards-compatible: allocate a large (MTU) buffer, block indefinitely. */
+net_buffer_t *net_buffer_alloc(void) {
+    return net_buffer_alloc_size(NET_BUF_LARGE, OS_WAIT_FOREVER);
+}
+
+/** Add a reference (zero-copy sharing).  Returns buf for convenience. */
+net_buffer_t *net_buffer_ref(net_buffer_t *buf) {
+    if (buf == NULL) return NULL;
+    uint32_t cs = os_enter_critical();
+    buf->ref_count++;
+    os_exit_critical(cs);
+    return buf;
+}
+
+/** Release a reference; returns buffer to pool when ref_count hits zero. */
 void net_buffer_free(net_buffer_t *buf) {
-    if (buf == NULL) {
+    if (buf == NULL) return;
+
+    uint32_t cs = os_enter_critical();
+
+    if (buf->ref_count == 0) {          /* guard against double-free */
+        os_exit_critical(cs);
+        return;
+    }
+    buf->ref_count--;
+    if (buf->ref_count > 0) {           /* still referenced by another holder */
+        os_exit_critical(cs);
         return;
     }
 
-    os_mutex_lock(&buffer_mutex, OS_WAIT_FOREVER);
+    /* ref_count reached 0 — return to free list */
+    buf_class_t cls     = buf_class_of(buf);
+    buf->next           = pool[cls].free_head;
+    pool[cls].free_head = buf;
+    pool[cls].in_use--;
+    pool[cls].free_count++;
 
-    buf->in_use = false;
-    buf->length = 0;
-    buf->offset = 0;
-    buf->next = buffer_free_list;
-    buffer_free_list = buf;
+    os_exit_critical(cs);
 
-    os_mutex_unlock(&buffer_mutex);
+    /* Wake any task blocked in net_buffer_alloc_size() for this class. */
+    os_semaphore_post(&pool[cls].sem);
+}
+
+/** Copy a statistics snapshot. */
+void net_buffer_get_stats(net_buf_stats_t *stats) {
+    if (stats == NULL) return;
+    uint32_t cs = os_enter_critical();
+    for (int c = 0; c < CLS_COUNT; c++) {
+        stats->alloc_count[c] = pool[c].alloc_count;
+        stats->free_count[c]  = pool[c].free_count;
+        stats->wait_count[c]  = pool[c].wait_count;
+        stats->in_use[c]      = pool[c].in_use;
+        stats->peak[c]        = pool[c].peak;
+    }
+    stats->timeout_count = buf_alloc_failures;
+    os_exit_critical(cs);
+}
+
+/*---------------------------------------------------------------------------
+ * Pool initialisation (called from net_init)
+ *---------------------------------------------------------------------------*/
+
+static void net_buffer_pool_init(void) {
+    buf_alloc_failures = 0;
+    pool_class_init(CLS_SMALL,  small_descs,  &small_storage [0][0],
+                    NET_BUF_SMALL_COUNT,  NET_BUF_SMALL);
+    pool_class_init(CLS_MEDIUM, medium_descs, &medium_storage[0][0],
+                    NET_BUF_MEDIUM_COUNT, NET_BUF_MEDIUM);
+    pool_class_init(CLS_LARGE,  large_descs,  &large_storage [0][0],
+                    NET_BUF_LARGE_COUNT,  NET_BUF_LARGE);
 }
 
 /*===========================================================================
