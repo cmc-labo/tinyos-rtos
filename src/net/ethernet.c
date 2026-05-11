@@ -4,7 +4,11 @@
  */
 
 #include "tinyos/net.h"
+#include "tinyos/stdio_uart.h"
 #include <string.h>
+
+#define TAG_ETH "net/eth"
+#define TAG_ARP "net/arp"
 
 /*===========================================================================
  * Ethernet Frame Structure
@@ -115,6 +119,11 @@ static void arp_cache_add(ipv4_addr_t ip, mac_addr_t mac) {
     arp_cache[oldest_idx].valid = true;
 
     os_mutex_unlock(&arp_mutex);
+
+    LOG_D(TAG_ARP, "cache add: %u.%u.%u.%u -> %02x:%02x:%02x:%02x:%02x:%02x",
+          IPV4_ADDR(ip),
+          mac.addr[0], mac.addr[1], mac.addr[2],
+          mac.addr[3], mac.addr[4], mac.addr[5]);
 }
 
 /**
@@ -205,11 +214,16 @@ static void arp_input(const uint8_t *data, uint16_t length) {
 
     /* Handle ARP request */
     if (opcode == ARP_OP_REQUEST && net_ipv4_equal(arp->target_ip, my_ip)) {
+        LOG_D(TAG_ARP, "request: who has %u.%u.%u.%u (from %u.%u.%u.%u)",
+              IPV4_ADDR(arp->target_ip), IPV4_ADDR(arp->sender_ip));
         arp_send_reply(arp->sender_ip, arp->sender_mac);
     }
     /* Handle ARP reply */
     else if (opcode == ARP_OP_REPLY && net_ipv4_equal(arp->target_ip, my_ip)) {
-        /* Already added to cache above */
+        LOG_D(TAG_ARP, "reply: %u.%u.%u.%u is at %02x:%02x:%02x:%02x:%02x:%02x",
+              IPV4_ADDR(arp->sender_ip),
+              arp->sender_mac.addr[0], arp->sender_mac.addr[1], arp->sender_mac.addr[2],
+              arp->sender_mac.addr[3], arp->sender_mac.addr[4], arp->sender_mac.addr[5]);
     }
 }
 
@@ -219,6 +233,7 @@ static void arp_input(const uint8_t *data, uint16_t length) {
 
 void net_ethernet_input(const uint8_t *data, uint16_t length) {
     if (length < ETH_HEADER_SIZE) {
+        LOG_W(TAG_ETH, "frame too short: %u bytes (min %u)", length, ETH_HEADER_SIZE);
         return;
     }
 
@@ -251,7 +266,7 @@ void net_ethernet_input(const uint8_t *data, uint16_t length) {
             break;
 
         default:
-            /* Unknown EtherType, ignore */
+            LOG_D(TAG_ETH, "unhandled EtherType 0x%04x", type);
             break;
     }
 }
@@ -269,6 +284,8 @@ void net_ethernet_input(const uint8_t *data, uint16_t length) {
  */
 os_error_t net_ethernet_send_ip(ipv4_addr_t dest_ip, const uint8_t *data, uint16_t length) {
     if (length > NET_BUFFER_SIZE - ETH_HEADER_SIZE) {
+        LOG_E(TAG_ETH, "send: frame too large (%u > %u)", length,
+              (unsigned)(NET_BUFFER_SIZE - ETH_HEADER_SIZE));
         return OS_ERR_INVALID_PARAM;
     }
 
@@ -276,9 +293,10 @@ os_error_t net_ethernet_send_ip(ipv4_addr_t dest_ip, const uint8_t *data, uint16
 
     /* Lookup MAC address in ARP cache */
     if (!arp_cache_lookup(dest_ip, &dest_mac)) {
-        /* MAC not in cache, send ARP request */
+        LOG_D(TAG_ARP, "no cache entry for %u.%u.%u.%u, sending request",
+              IPV4_ADDR(dest_ip));
         arp_send_request(dest_ip);
-        return OS_ERR_TIMEOUT;  /* Caller should retry */
+        return OS_ERR_TIMEOUT;
     }
 
     /* Build ethernet frame */
@@ -320,12 +338,16 @@ os_error_t net_arp_resolve(ipv4_addr_t ip, mac_addr_t *mac, uint32_t timeout_ms)
 
     /* Wait for ARP reply (with timeout) */
     while ((os_get_tick_count() - start_time) < timeout_ms) {
-        os_task_delay(10);  /* 10ms polling */
+        os_task_delay(10);
 
         if (arp_cache_lookup(ip, mac)) {
+            LOG_D(TAG_ARP, "resolved %u.%u.%u.%u in %lums",
+                  IPV4_ADDR(ip),
+                  (unsigned long)(os_get_tick_count() - start_time));
             return OS_OK;
         }
     }
 
+    LOG_W(TAG_ARP, "resolve timeout for %u.%u.%u.%u", IPV4_ADDR(ip));
     return OS_ERR_TIMEOUT;
 }

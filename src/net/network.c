@@ -4,7 +4,10 @@
  */
 
 #include "tinyos/net.h"
+#include "tinyos/stdio_uart.h"
 #include <string.h>
+
+#define TAG "net"
 
 /*===========================================================================
  * Internal Data Structures
@@ -141,7 +144,8 @@ net_buffer_t *net_buffer_alloc_size(uint16_t min_size, uint32_t timeout_ms) {
         uint32_t cs = os_enter_critical();
         buf_alloc_failures++;
         os_exit_critical(cs);
-        return NULL;  /* request exceeds maximum buffer size */
+        LOG_W(TAG, "buf alloc: size %u exceeds max (%u)", min_size, NET_BUF_LARGE);
+        return NULL;
     }
 
     /* Block until a buffer of this class is available (or timeout). */
@@ -150,6 +154,8 @@ net_buffer_t *net_buffer_alloc_size(uint16_t min_size, uint32_t timeout_ms) {
         uint32_t cs = os_enter_critical();
         buf_alloc_failures++;
         os_exit_critical(cs);
+        LOG_W(TAG, "buf alloc timeout: class=%d in_use=%u/%u",
+              cls, pool[cls].in_use, pool[cls].total);
         return NULL;
     }
 
@@ -268,6 +274,7 @@ os_error_t net_init(net_driver_t *driver, const net_config_t *config) {
     if (driver->init) {
         os_error_t err = driver->init();
         if (err != OS_OK) {
+            LOG_E(TAG, "driver init failed: err=%d", err);
             return err;
         }
     }
@@ -278,6 +285,9 @@ os_error_t net_init(net_driver_t *driver, const net_config_t *config) {
     net_icmp_init();
     net_udp_init();
     net_tcp_init();
+
+    LOG_I(TAG, "initialized: ip=%u.%u.%u.%u mask=%u.%u.%u.%u gw=%u.%u.%u.%u",
+          IPV4_ADDR(config->ip), IPV4_ADDR(config->netmask), IPV4_ADDR(config->gateway));
 
     return OS_OK;
 }
@@ -309,14 +319,19 @@ static void network_task_func(void *param) {
 }
 
 os_error_t net_start(void) {
-    /* Create network receive task */
-    return os_task_create(
+    os_error_t err = os_task_create(
         &network_task,
         "net_task",
         network_task_func,
         NULL,
-        PRIORITY_HIGH  /* High priority for network processing */
+        PRIORITY_HIGH
     );
+    if (err != OS_OK) {
+        LOG_E(TAG, "failed to create network task: err=%d", err);
+    } else {
+        LOG_I(TAG, "network task started");
+    }
+    return err;
 }
 
 /*===========================================================================
@@ -458,9 +473,11 @@ os_error_t net_driver_send(const uint8_t *data, uint16_t length) {
             net_statistics.eth_tx_packets++;
         } else {
             net_statistics.eth_tx_errors++;
+            LOG_E(TAG, "driver send failed: len=%u err=%d", length, err);
         }
         return err;
     }
+    LOG_E(TAG, "driver send: stack not initialized");
     return OS_ERR_NOT_INITIALIZED;
 }
 

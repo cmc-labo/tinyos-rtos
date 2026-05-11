@@ -4,7 +4,10 @@
  */
 
 #include "tinyos/net.h"
+#include "tinyos/stdio_uart.h"
 #include <string.h>
+
+#define TAG "net/sock"
 
 /* UDP Header */
 typedef struct __attribute__((packed)) {
@@ -122,6 +125,7 @@ net_socket_t net_socket(socket_type_t type) {
     }
 
     os_mutex_unlock(&socket_mutex);
+    LOG_W(TAG, "no free sockets (max=%d)", NET_MAX_SOCKETS);
     return INVALID_SOCKET;
 }
 
@@ -136,12 +140,14 @@ os_error_t net_bind(net_socket_t sock, const sockaddr_in_t *addr) {
 
 os_error_t net_close(net_socket_t sock) {
     if (!sock_valid(sock)) {
+        LOG_W(TAG, "close: invalid socket %d", sock);
         return OS_ERR_INVALID_PARAM;
     }
 
-    /* For TCP: send FIN and wait for close (simplified) */
     if (sockets[sock].type == SOCK_STREAM && sockets[sock].state == TCP_ESTABLISHED) {
-        /* Send FIN packet - simplified, not fully implemented */
+        LOG_D(TAG, "close: TCP sock=%d %u.%u.%u.%u:%u",
+              sock, IPV4_ADDR(sockets[sock].remote_addr.addr),
+              sockets[sock].remote_addr.port);
         sockets[sock].state = TCP_CLOSED;
     }
 
@@ -158,6 +164,7 @@ void net_udp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv
     (void)dest_ip;
 
     if (length < sizeof(udp_header_t)) {
+        LOG_W(TAG, "UDP packet too short: %u bytes", length);
         return;
     }
 
@@ -256,6 +263,7 @@ void net_tcp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv
     (void)dest_ip;
 
     if (length < sizeof(tcp_header_t)) {
+        LOG_W(TAG, "TCP segment too short: %u bytes", length);
         return;
     }
 
@@ -263,32 +271,39 @@ void net_tcp_input(const uint8_t *data, uint16_t length, ipv4_addr_t src_ip, ipv
     uint16_t dest_port = ntohs(tcp->dest_port);
     uint16_t src_port = ntohs(tcp->src_port);
 
-    /* Find matching socket */
     for (int i = 0; i < NET_MAX_SOCKETS; i++) {
         if (sockets[i].in_use && sockets[i].type == SOCK_STREAM &&
             sockets[i].local_addr.port == dest_port &&
             net_ipv4_equal(sockets[i].remote_addr.addr, src_ip) &&
             sockets[i].remote_addr.port == src_port) {
 
-            /* Process based on flags and state */
             uint8_t flags = tcp->flags;
 
             if (flags & TCP_FLAG_ACK && sockets[i].state == TCP_SYN_SENT) {
-                /* Connection established */
                 sockets[i].state = TCP_ESTABLISHED;
                 sockets[i].ack_num = ntohl(tcp->seq_num) + 1;
+                LOG_I(TAG, "TCP connected: sock=%d %u.%u.%u.%u:%u",
+                      i, IPV4_ADDR(src_ip), src_port);
                 os_semaphore_post(&sockets[i].rx_sem);
             }
             else if (flags & TCP_FLAG_PSH && sockets[i].state == TCP_ESTABLISHED) {
-                /* Data received */
                 uint8_t data_offset = (tcp->data_offset_flags >> 4) * 4;
                 uint16_t payload_len = length - data_offset;
 
                 if (payload_len > 0 && payload_len <= sizeof(sockets[i].rx_buffer)) {
                     memcpy(sockets[i].rx_buffer, data + data_offset, payload_len);
                     sockets[i].rx_length = payload_len;
+                    LOG_D(TAG, "TCP rx: sock=%d %u bytes from %u.%u.%u.%u:%u",
+                          i, payload_len, IPV4_ADDR(src_ip), src_port);
                     os_semaphore_post(&sockets[i].rx_sem);
+                } else if (payload_len > sizeof(sockets[i].rx_buffer)) {
+                    LOG_W(TAG, "TCP rx: sock=%d payload %u > rx_buf %u, truncated",
+                          i, payload_len, (unsigned)sizeof(sockets[i].rx_buffer));
                 }
+            } else if (flags & TCP_FLAG_RST) {
+                LOG_W(TAG, "TCP RST: sock=%d from %u.%u.%u.%u:%u",
+                      i, IPV4_ADDR(src_ip), src_port);
+                sockets[i].state = TCP_CLOSED;
             }
 
             break;
@@ -326,13 +341,17 @@ os_error_t net_connect(net_socket_t sock, const sockaddr_in_t *addr, uint32_t ti
 
     sockets[sock].state = TCP_SYN_SENT;
 
-    /* Send SYN */
+    LOG_D(TAG, "TCP connect: sock=%d -> %u.%u.%u.%u:%u",
+          sock, IPV4_ADDR(addr->addr), addr->port);
+
     if (net_ip_send(addr->addr, 6, packet, sizeof(packet)) != OS_OK) {
+        LOG_W(TAG, "TCP SYN send failed: sock=%d", sock);
         return OS_ERR_GENERIC;
     }
 
-    /* Wait for SYN-ACK */
     if (os_semaphore_wait(&sockets[sock].rx_sem, timeout_ms) != OS_OK) {
+        LOG_W(TAG, "TCP connect timeout: sock=%d %u.%u.%u.%u:%u",
+              sock, IPV4_ADDR(addr->addr), addr->port);
         sockets[sock].state = TCP_CLOSED;
         return OS_ERR_TIMEOUT;
     }

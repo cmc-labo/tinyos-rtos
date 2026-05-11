@@ -1169,26 +1169,32 @@ Discarded input sections
                 0x0000000000000000       0x90 build/ethernet.o
  .text.net_ethernet_init
                 0x0000000000000000       0x34 build/ethernet.o
+ .rodata.net_ethernet_input.str1.4
+                0x0000000000000000       0xef build/ethernet.o
  .text.net_ethernet_input
-                0x0000000000000000      0x150 build/ethernet.o
+                0x0000000000000000      0x260 build/ethernet.o
+ .rodata.net_ethernet_send_ip.str1.4
+                0x0000000000000000       0x50 build/ethernet.o
  .text.net_ethernet_send_ip
-                0x0000000000000000       0x84 build/ethernet.o
+                0x0000000000000000       0xdc build/ethernet.o
+ .rodata.net_arp_resolve.str1.4
+                0x0000000000000000       0x40 build/ethernet.o
  .text.net_arp_resolve
-                0x0000000000000000       0x78 build/ethernet.o
+                0x0000000000000000       0xf0 build/ethernet.o
  .bss.arp_cache
                 0x0000000000000000       0xa0 build/ethernet.o
  .bss.arp_mutex
                 0x0000000000000000       0x10 build/ethernet.o
- .debug_info    0x0000000000000000      0xd7d build/ethernet.o
- .debug_abbrev  0x0000000000000000      0x3bf build/ethernet.o
- .debug_loc     0x0000000000000000      0x510 build/ethernet.o
+ .debug_info    0x0000000000000000     0x1006 build/ethernet.o
+ .debug_abbrev  0x0000000000000000      0x3c4 build/ethernet.o
+ .debug_loc     0x0000000000000000      0x941 build/ethernet.o
  .debug_aranges
                 0x0000000000000000       0x48 build/ethernet.o
- .debug_ranges  0x0000000000000000       0xb8 build/ethernet.o
- .debug_line    0x0000000000000000      0x52c build/ethernet.o
- .debug_str     0x0000000000000000      0x6ce build/ethernet.o
+ .debug_ranges  0x0000000000000000       0xd8 build/ethernet.o
+ .debug_line    0x0000000000000000      0x598 build/ethernet.o
+ .debug_str     0x0000000000000000      0x739 build/ethernet.o
  .comment       0x0000000000000000       0x34 build/ethernet.o
- .debug_frame   0x0000000000000000      0x108 build/ethernet.o
+ .debug_frame   0x0000000000000000      0x130 build/ethernet.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/ethernet.o
  .text          0x0000000000000000        0x0 build/http_dns.o
@@ -1231,10 +1237,14 @@ Discarded input sections
                 0x0000000000000000       0x1c build/ip.o
  .text.net_icmp_init
                 0x0000000000000000       0x1c build/ip.o
+ .rodata.net_ping.str1.4
+                0x0000000000000000       0x92 build/ip.o
  .text.net_ping
-                0x0000000000000000      0x114 build/ip.o
+                0x0000000000000000      0x1a8 build/ip.o
+ .rodata.net_ip_input.str1.4
+                0x0000000000000000      0x14b build/ip.o
  .text.net_ip_input
-                0x0000000000000000      0x1a4 build/ip.o
+                0x0000000000000000      0x30c build/ip.o
  .text.net_ip_send
                 0x0000000000000000       0x7c build/ip.o
  .bss.ping_id   0x0000000000000000        0x2 build/ip.o
@@ -1247,16 +1257,16 @@ Discarded input sections
  .bss.ping_sem  0x0000000000000000        0x8 build/ip.o
  .bss.ping_sequence
                 0x0000000000000000        0x2 build/ip.o
- .debug_info    0x0000000000000000      0xe25 build/ip.o
- .debug_abbrev  0x0000000000000000      0x39f build/ip.o
- .debug_loc     0x0000000000000000      0x5ce build/ip.o
+ .debug_info    0x0000000000000000     0x11d9 build/ip.o
+ .debug_abbrev  0x0000000000000000      0x3d6 build/ip.o
+ .debug_loc     0x0000000000000000      0xa2b build/ip.o
  .debug_aranges
                 0x0000000000000000       0x40 build/ip.o
- .debug_ranges  0x0000000000000000      0x150 build/ip.o
- .debug_line    0x0000000000000000      0x549 build/ip.o
- .debug_str     0x0000000000000000      0x6d9 build/ip.o
+ .debug_ranges  0x0000000000000000      0x188 build/ip.o
+ .debug_line    0x0000000000000000      0x644 build/ip.o
+ .debug_str     0x0000000000000000      0x74c build/ip.o
  .comment       0x0000000000000000       0x34 build/ip.o
- .debug_frame   0x0000000000000000       0xe0 build/ip.o
+ .debug_frame   0x0000000000000000       0xec build/ip.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/ip.o
  .text          0x0000000000000000        0x0 build/network.o
@@ -1264,8 +1274,10 @@ Discarded input sections
  .bss           0x0000000000000000        0x0 build/network.o
  .text.network_task_func
                 0x0000000000000000       0x40 build/network.o
+ .rodata.net_buffer_alloc_size.str1.4
+                0x0000000000000000       0x51 build/network.o
  .text.net_buffer_alloc_size
-                0x0000000000000000       0xa0 build/network.o
+                0x0000000000000000       0xec build/network.o
  .text.net_buffer_alloc
                 0x0000000000000000        0xc build/network.o
  .text.net_buffer_ref
@@ -1274,12 +1286,14 @@ Discarded input sections
                 0x0000000000000000       0x68 build/network.o
  .text.net_buffer_get_stats
                 0x0000000000000000       0x60 build/network.o
+ .rodata.net_init.str1.4
+                0x0000000000000000       0x58 build/network.o
  .text.net_init
-                0x0000000000000000      0x18c build/network.o
+                0x0000000000000000      0x1e4 build/network.o
  .rodata.net_start.str1.4
-                0x0000000000000000        0x9 build/network.o
+                0x0000000000000000       0x49 build/network.o
  .text.net_start
-                0x0000000000000000       0x28 build/network.o
+                0x0000000000000000       0x54 build/network.o
  .text.net_get_stats
                 0x0000000000000000       0x44 build/network.o
  .text.net_get_config
@@ -1294,8 +1308,10 @@ Discarded input sections
                 0x0000000000000000       0x10 build/network.o
  .text.net_checksum
                 0x0000000000000000       0x54 build/network.o
+ .rodata.net_driver_send.str1.4
+                0x0000000000000000       0x47 build/network.o
  .text.net_driver_send
-                0x0000000000000000       0x30 build/network.o
+                0x0000000000000000       0x64 build/network.o
  .text.net_get_mac_addr
                 0x0000000000000000       0x14 build/network.o
  .text.net_get_ip_addr
@@ -1329,16 +1345,16 @@ Discarded input sections
                 0x0000000000000000       0x80 build/network.o
  .bss.small_storage
                 0x0000000000000000      0x400 build/network.o
- .debug_info    0x0000000000000000     0x1409 build/network.o
- .debug_abbrev  0x0000000000000000      0x45c build/network.o
- .debug_loc     0x0000000000000000      0xb8f build/network.o
+ .debug_info    0x0000000000000000     0x15c2 build/network.o
+ .debug_abbrev  0x0000000000000000      0x44c build/network.o
+ .debug_loc     0x0000000000000000      0xc4f build/network.o
  .debug_aranges
                 0x0000000000000000       0xc0 build/network.o
- .debug_ranges  0x0000000000000000      0x1d0 build/network.o
- .debug_line    0x0000000000000000      0x9ba build/network.o
- .debug_str     0x0000000000000000      0x9d4 build/network.o
+ .debug_ranges  0x0000000000000000      0x1e8 build/network.o
+ .debug_line    0x0000000000000000      0xa2a build/network.o
+ .debug_str     0x0000000000000000      0xa0a build/network.o
  .comment       0x0000000000000000       0x34 build/network.o
- .debug_frame   0x0000000000000000      0x248 build/network.o
+ .debug_frame   0x0000000000000000      0x274 build/network.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/network.o
  .text          0x0000000000000000        0x0 build/socket.o
@@ -1348,22 +1364,32 @@ Discarded input sections
                 0x0000000000000000       0x34 build/socket.o
  .text.net_tcp_init
                 0x0000000000000000        0x4 build/socket.o
+ .rodata.net_socket.str1.4
+                0x0000000000000000       0x25 build/socket.o
  .text.net_socket
-                0x0000000000000000       0x68 build/socket.o
+                0x0000000000000000       0x7c build/socket.o
  .text.net_bind
                 0x0000000000000000       0x2c build/socket.o
+ .rodata.net_close.str1.4
+                0x0000000000000000       0x3d build/socket.o
  .text.net_close
-                0x0000000000000000       0x4c build/socket.o
+                0x0000000000000000       0x88 build/socket.o
+ .rodata.net_udp_input.str1.4
+                0x0000000000000000       0x1f build/socket.o
  .text.net_udp_input
-                0x0000000000000000       0x90 build/socket.o
+                0x0000000000000000       0xac build/socket.o
  .text.net_sendto
                 0x0000000000000000       0x8c build/socket.o
  .text.net_recvfrom
                 0x0000000000000000       0x8c build/socket.o
+ .rodata.net_tcp_input.str1.4
+                0x0000000000000000       0xd1 build/socket.o
  .text.net_tcp_input
-                0x0000000000000000       0xec build/socket.o
+                0x0000000000000000      0x1dc build/socket.o
+ .rodata.net_connect.str1.4
+                0x0000000000000000       0x74 build/socket.o
  .text.net_connect
-                0x0000000000000000       0xe8 build/socket.o
+                0x0000000000000000      0x154 build/socket.o
  .text.net_send
                 0x0000000000000000       0xe4 build/socket.o
  .text.net_recv
@@ -1377,16 +1403,16 @@ Discarded input sections
  .bss.sockets   0x0000000000000000     0x2120 build/socket.o
  .data.next_ephemeral_port
                 0x0000000000000000        0x2 build/socket.o
- .debug_info    0x0000000000000000     0x119e build/socket.o
- .debug_abbrev  0x0000000000000000      0x394 build/socket.o
- .debug_loc     0x0000000000000000      0xcea build/socket.o
+ .debug_info    0x0000000000000000     0x144d build/socket.o
+ .debug_abbrev  0x0000000000000000      0x3de build/socket.o
+ .debug_loc     0x0000000000000000      0xe41 build/socket.o
  .debug_aranges
                 0x0000000000000000       0x88 build/socket.o
- .debug_ranges  0x0000000000000000      0x2d0 build/socket.o
- .debug_line    0x0000000000000000      0x968 build/socket.o
- .debug_str     0x0000000000000000      0x7a6 build/socket.o
+ .debug_ranges  0x0000000000000000      0x2e8 build/socket.o
+ .debug_line    0x0000000000000000      0xa05 build/socket.o
+ .debug_str     0x0000000000000000      0x811 build/socket.o
  .comment       0x0000000000000000       0x34 build/socket.o
- .debug_frame   0x0000000000000000      0x26c build/socket.o
+ .debug_frame   0x0000000000000000      0x2a0 build/socket.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/socket.o
  .text          0x0000000000000000        0x0 build/flash.o
