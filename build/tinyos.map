@@ -1169,8 +1169,12 @@ Discarded input sections
                 0x0000000000000000       0x90 build/ethernet.o
  .text.net_ethernet_init
                 0x0000000000000000       0x34 build/ethernet.o
+ .rodata.net_arp_cache_flush.str1.4
+                0x0000000000000000       0x18 build/ethernet.o
+ .text.net_arp_cache_flush
+                0x0000000000000000       0x54 build/ethernet.o
  .rodata.net_ethernet_input.str1.4
-                0x0000000000000000       0xef build/ethernet.o
+                0x0000000000000000       0xe7 build/ethernet.o
  .text.net_ethernet_input
                 0x0000000000000000      0x260 build/ethernet.o
  .rodata.net_ethernet_send_ip.str1.4
@@ -1185,16 +1189,16 @@ Discarded input sections
                 0x0000000000000000       0xa0 build/ethernet.o
  .bss.arp_mutex
                 0x0000000000000000       0x10 build/ethernet.o
- .debug_info    0x0000000000000000     0x1006 build/ethernet.o
- .debug_abbrev  0x0000000000000000      0x3c4 build/ethernet.o
- .debug_loc     0x0000000000000000      0x941 build/ethernet.o
+ .debug_info    0x0000000000000000     0x1089 build/ethernet.o
+ .debug_abbrev  0x0000000000000000      0x3db build/ethernet.o
+ .debug_loc     0x0000000000000000      0x9c7 build/ethernet.o
  .debug_aranges
-                0x0000000000000000       0x48 build/ethernet.o
- .debug_ranges  0x0000000000000000       0xd8 build/ethernet.o
- .debug_line    0x0000000000000000      0x598 build/ethernet.o
- .debug_str     0x0000000000000000      0x739 build/ethernet.o
+                0x0000000000000000       0x50 build/ethernet.o
+ .debug_ranges  0x0000000000000000       0xf8 build/ethernet.o
+ .debug_line    0x0000000000000000      0x63d build/ethernet.o
+ .debug_str     0x0000000000000000      0x74d build/ethernet.o
  .comment       0x0000000000000000       0x34 build/ethernet.o
- .debug_frame   0x0000000000000000      0x130 build/ethernet.o
+ .debug_frame   0x0000000000000000      0x14c build/ethernet.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/ethernet.o
  .text          0x0000000000000000        0x0 build/http_dns.o
@@ -1272,10 +1276,16 @@ Discarded input sections
  .text          0x0000000000000000        0x0 build/network.o
  .data          0x0000000000000000        0x0 build/network.o
  .bss           0x0000000000000000        0x0 build/network.o
+ .rodata.on_link_up.str1.4
+                0x0000000000000000       0x30 build/network.o
+ .text.on_link_up
+                0x0000000000000000       0x5c build/network.o
+ .rodata.network_task_func.str1.4
+                0x0000000000000000       0x80 build/network.o
  .text.network_task_func
-                0x0000000000000000       0x40 build/network.o
+                0x0000000000000000      0x17c build/network.o
  .rodata.net_buffer_alloc_size.str1.4
-                0x0000000000000000       0x51 build/network.o
+                0x0000000000000000       0x4d build/network.o
  .text.net_buffer_alloc_size
                 0x0000000000000000       0xec build/network.o
  .text.net_buffer_alloc
@@ -1294,8 +1304,12 @@ Discarded input sections
                 0x0000000000000000       0x49 build/network.o
  .text.net_start
                 0x0000000000000000       0x54 build/network.o
+ .text.net_set_link_callback
+                0x0000000000000000        0xc build/network.o
+ .text.net_is_link_up
+                0x0000000000000000        0xc build/network.o
  .text.net_get_stats
-                0x0000000000000000       0x44 build/network.o
+                0x0000000000000000       0x10 build/network.o
  .text.net_get_config
                 0x0000000000000000       0x30 build/network.o
  .text.net_set_config
@@ -1332,29 +1346,35 @@ Discarded input sections
                 0x0000000000000000       0x40 build/network.o
  .bss.large_storage
                 0x0000000000000000     0x1770 build/network.o
+ .bss.link_cb   0x0000000000000000        0x4 build/network.o
+ .bss.link_up   0x0000000000000000        0x1 build/network.o
  .bss.medium_descs
                 0x0000000000000000       0x60 build/network.o
  .bss.medium_storage
                 0x0000000000000000      0xc00 build/network.o
  .bss.net_statistics
-                0x0000000000000000       0x3c build/network.o
+                0x0000000000000000       0x48 build/network.o
  .bss.network_task
                 0x0000000000000000      0x454 build/network.o
  .bss.pool      0x0000000000000000       0x60 build/network.o
+ .bss.reconnect_count
+                0x0000000000000000        0x4 build/network.o
  .bss.small_descs
                 0x0000000000000000       0x80 build/network.o
  .bss.small_storage
                 0x0000000000000000      0x400 build/network.o
- .debug_info    0x0000000000000000     0x15c2 build/network.o
- .debug_abbrev  0x0000000000000000      0x44c build/network.o
- .debug_loc     0x0000000000000000      0xc4f build/network.o
+ .data.reconnect_delay
+                0x0000000000000000        0x4 build/network.o
+ .debug_info    0x0000000000000000     0x18be build/network.o
+ .debug_abbrev  0x0000000000000000      0x508 build/network.o
+ .debug_loc     0x0000000000000000      0xc6c build/network.o
  .debug_aranges
-                0x0000000000000000       0xc0 build/network.o
- .debug_ranges  0x0000000000000000      0x1e8 build/network.o
- .debug_line    0x0000000000000000      0xa2a build/network.o
- .debug_str     0x0000000000000000      0xa0a build/network.o
+                0x0000000000000000       0xd8 build/network.o
+ .debug_ranges  0x0000000000000000      0x250 build/network.o
+ .debug_line    0x0000000000000000      0xc6f build/network.o
+ .debug_str     0x0000000000000000      0xb41 build/network.o
  .comment       0x0000000000000000       0x34 build/network.o
- .debug_frame   0x0000000000000000      0x274 build/network.o
+ .debug_frame   0x0000000000000000      0x2a8 build/network.o
  .ARM.attributes
                 0x0000000000000000       0x2e build/network.o
  .text          0x0000000000000000        0x0 build/socket.o

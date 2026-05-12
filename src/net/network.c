@@ -28,6 +28,7 @@ static tcb_t network_task;
 /* External functions from other network modules */
 extern void net_ethernet_init(void);
 extern void net_ethernet_input(const uint8_t *data, uint16_t length);
+extern void net_arp_cache_flush(void);
 
 extern void net_ip_init(void);
 extern void net_ip_input(const uint8_t *data, uint16_t length, const mac_addr_t *src_mac);
@@ -35,6 +36,12 @@ extern void net_ip_input(const uint8_t *data, uint16_t length, const mac_addr_t 
 extern void net_icmp_init(void);
 extern void net_udp_init(void);
 extern void net_tcp_init(void);
+
+/* Link state and reconnect state */
+static bool                link_up          = false;
+static uint32_t            reconnect_delay  = NET_RECONNECT_BASE_MS;
+static uint32_t            reconnect_count  = 0;
+static net_link_callback_t link_cb          = NULL;
 
 /*===========================================================================
  * Dynamic Buffer Pool — three size classes
@@ -296,25 +303,138 @@ os_error_t net_init(net_driver_t *driver, const net_config_t *config) {
  * Network Main Loop Task
  *===========================================================================*/
 
+/*---------------------------------------------------------------------------
+ * Link event helpers
+ *---------------------------------------------------------------------------*/
+
+static inline bool driver_has_link_monitor(void) {
+    return current_driver != NULL && current_driver->is_link_up != NULL;
+}
+
+static void on_link_up(void) {
+    link_up = true;
+    if (net_statistics.link_down_count > 0) {
+        LOG_I(TAG, "link restored after %lu attempt(s)", (unsigned long)reconnect_count);
+    } else {
+        LOG_I(TAG, "link up");
+    }
+    if (link_cb) link_cb(NET_LINK_UP);
+    reconnect_delay = NET_RECONNECT_BASE_MS;
+    reconnect_count = 0;
+}
+
+static void on_link_down(void) {
+    link_up = false;
+    net_statistics.link_down_count++;
+    reconnect_delay = NET_RECONNECT_BASE_MS;
+    reconnect_count = 0;
+    LOG_W(TAG, "link down (event #%lu)", (unsigned long)net_statistics.link_down_count);
+    if (link_cb) link_cb(NET_LINK_DOWN);
+    net_arp_cache_flush();
+}
+
+/*---------------------------------------------------------------------------
+ * Reconnect attempt — called while link is DOWN.
+ * Returns true when link comes back up.
+ *---------------------------------------------------------------------------*/
+static bool attempt_reconnect(void) {
+#if NET_RECONNECT_MAX_TRIES > 0
+    if (reconnect_count >= NET_RECONNECT_MAX_TRIES) {
+        /* Give up — sleep at max interval, stay in DOWN state. */
+        os_task_delay(NET_RECONNECT_MAX_MS);
+        return false;
+    }
+#endif
+
+    reconnect_count++;
+    net_statistics.reconnect_attempts++;
+
+    LOG_I(TAG, "recovery attempt %lu (delay=%lums)",
+          (unsigned long)reconnect_count,
+          (unsigned long)reconnect_delay);
+
+    /* Re-initialise the driver (PHY reset / MAC reconfiguration). */
+    if (current_driver->init) {
+        current_driver->init();
+    }
+
+    os_task_delay(reconnect_delay);
+
+    if (current_driver->is_link_up()) {
+        net_statistics.reconnect_success++;
+        on_link_up();
+        return true;
+    }
+
+    /* Exponential backoff — double the delay, cap at maximum. */
+    if (reconnect_delay < NET_RECONNECT_MAX_MS / 2) {
+        reconnect_delay *= 2;
+    } else {
+        reconnect_delay = NET_RECONNECT_MAX_MS;
+    }
+
+    return false;
+}
+
+/*---------------------------------------------------------------------------
+ * Network main loop task
+ *---------------------------------------------------------------------------*/
 static void network_task_func(void *param) {
     (void)param;
 
     uint8_t rx_buffer[NET_BUFFER_SIZE];
 
-    while (1) {
-        /* Check for incoming packets */
-        if (current_driver && current_driver->receive) {
-            int32_t length = current_driver->receive(rx_buffer, NET_BUFFER_SIZE);
-
-            if (length > 0) {
-                /* Pass to Ethernet layer */
-                net_ethernet_input(rx_buffer, (uint16_t)length);
-                net_statistics.eth_rx_packets++;
-            }
+    /* Determine initial link state. */
+    if (driver_has_link_monitor()) {
+        if (current_driver->is_link_up()) {
+            on_link_up();
+        } else {
+            /* Treat as first link-down without firing the user callback. */
+            link_up = false;
+            LOG_W(TAG, "link down at startup, beginning recovery");
+            net_arp_cache_flush();
         }
+    } else {
+        /* Driver has no link monitoring — assume the link is always up. */
+        link_up = true;
+        LOG_I(TAG, "link up (no monitoring)");
+    }
 
-        /* Small delay to prevent busy-waiting */
-        os_task_delay(1);  /* 1ms polling interval */
+    while (1) {
+        if (link_up) {
+            /*-------------------------------------------------------------
+             * LINK UP: poll for incoming frames
+             *------------------------------------------------------------*/
+            if (current_driver && current_driver->receive) {
+                int32_t length = current_driver->receive(rx_buffer, NET_BUFFER_SIZE);
+                if (length > 0) {
+                    net_ethernet_input(rx_buffer, (uint16_t)length);
+                    net_statistics.eth_rx_packets++;
+                } else if (length < 0) {
+                    net_statistics.eth_rx_errors++;
+                }
+            }
+
+            /* Periodic link check — detect cable pull / PHY fault. */
+            if (driver_has_link_monitor() && !current_driver->is_link_up()) {
+                on_link_down();
+                continue;  /* Skip 1 ms delay; begin recovery immediately. */
+            }
+
+            os_task_delay(1);
+
+        } else {
+            /*-------------------------------------------------------------
+             * LINK DOWN: attempt recovery with exponential back-off.
+             * If no link-monitor present, return to UP immediately.
+             *------------------------------------------------------------*/
+            if (!driver_has_link_monitor()) {
+                link_up = true;
+                continue;
+            }
+
+            attempt_reconnect();
+        }
     }
 }
 
@@ -332,6 +452,18 @@ os_error_t net_start(void) {
         LOG_I(TAG, "network task started");
     }
     return err;
+}
+
+/*===========================================================================
+ * Link State API
+ *===========================================================================*/
+
+void net_set_link_callback(net_link_callback_t cb) {
+    link_cb = cb;
+}
+
+bool net_is_link_up(void) {
+    return link_up;
 }
 
 /*===========================================================================

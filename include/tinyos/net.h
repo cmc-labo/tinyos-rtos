@@ -113,6 +113,27 @@ typedef struct {
 } net_config_t;
 
 /*===========================================================================
+ * Link State and Recovery
+ *===========================================================================*/
+
+typedef enum {
+    NET_LINK_DOWN = 0,  /**< Physical link lost                       */
+    NET_LINK_UP   = 1,  /**< Physical link established / restored     */
+} net_link_event_t;
+
+/** Callback invoked from the network task on each link state transition. */
+typedef void (*net_link_callback_t)(net_link_event_t event);
+
+/**
+ * Reconnect timing — exponential backoff.
+ * Delay doubles after each failed attempt, capped at NET_RECONNECT_MAX_MS.
+ * Set NET_RECONNECT_MAX_TRIES to 0 for unlimited retries.
+ */
+#define NET_RECONNECT_BASE_MS   100U     /**< First retry delay (ms)                   */
+#define NET_RECONNECT_MAX_MS    30000U   /**< Backoff ceiling (ms)                     */
+#define NET_RECONNECT_MAX_TRIES 0U       /**< Max attempts before giving up (0 = ∞)    */
+
+/*===========================================================================
  * Network Driver Interface
  *===========================================================================*/
 
@@ -248,6 +269,11 @@ typedef struct {
     uint32_t tcp_tx_packets;
     uint32_t tcp_connections;
     uint32_t tcp_resets;
+
+    /* Link / recovery stats */
+    uint32_t link_down_count;      /**< Times link transitioned to DOWN          */
+    uint32_t reconnect_attempts;   /**< Total driver re-init attempts             */
+    uint32_t reconnect_success;    /**< Successful link restorations              */
 } net_stats_t;
 
 /*===========================================================================
@@ -267,6 +293,22 @@ os_error_t net_init(net_driver_t *driver, const net_config_t *config);
  * @return OS_OK on success
  */
 os_error_t net_start(void);
+
+/**
+ * @brief Register a callback for link state transitions (UP / DOWN).
+ *
+ * Called from the network task on every transition.  Keep the callback
+ * short — avoid blocking calls inside it.  Pass NULL to unregister.
+ *
+ * @param cb  Callback function, or NULL.
+ */
+void net_set_link_callback(net_link_callback_t cb);
+
+/**
+ * @brief Query the current physical link state.
+ * @return true if the link is UP, false if DOWN or unknown.
+ */
+bool net_is_link_up(void);
 
 /**
  * @brief Get network statistics

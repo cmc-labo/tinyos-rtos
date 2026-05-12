@@ -80,10 +80,19 @@ static uint16_t ntohs(uint16_t netshort) {
 void net_ethernet_init(void) {
     os_mutex_init(&arp_mutex);
 
-    /* Initialize ARP cache */
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
         arp_cache[i].valid = false;
     }
+}
+
+/** Invalidate all ARP cache entries — called when the link goes down. */
+void net_arp_cache_flush(void) {
+    os_mutex_lock(&arp_mutex, OS_WAIT_FOREVER);
+    for (int i = 0; i < ARP_CACHE_SIZE; i++) {
+        arp_cache[i].valid = false;
+    }
+    os_mutex_unlock(&arp_mutex);
+    LOG_I(TAG_ARP, "cache flushed");
 }
 
 /*===========================================================================
