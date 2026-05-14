@@ -139,6 +139,10 @@ static struct {
 /* Bitmap for block allocation (stored in memory) */
 static uint8_t block_bitmap[(FS_MAX_BLOCKS + 7) / 8];
 
+/* Per-block reference counts – rebuilt from inode scan on every mount.
+ * A count > 1 means the block is shared (e.g. via a COW snapshot). */
+static uint8_t block_refcount[FS_MAX_BLOCKS];
+
 /* Forward declarations */
 static os_error_t fs_read_block(uint32_t block, void *buffer);
 static os_error_t fs_write_block(uint32_t block, const void *buffer);
@@ -149,6 +153,7 @@ static uint32_t fs_alloc_inode(void);
 static os_error_t fs_free_inode(uint32_t inode);
 static os_error_t fs_read_inode(uint32_t inode, fs_inode_t *inode_data);
 static os_error_t fs_write_inode(uint32_t inode, const fs_inode_t *inode_data);
+static void fs_rebuild_refcounts(void);
 
 static inline bool fd_valid(fs_file_t fd) {
     return fd >= 0 && fd < FS_MAX_OPEN_FILES && fs_state.files[fd].in_use;
@@ -559,6 +564,9 @@ os_error_t fs_mount(fs_block_device_t *device) {
         device->read(1, block_bitmap, 1);
     }
 
+    /* Rebuild per-block reference counts from live inodes */
+    fs_rebuild_refcounts();
+
     os_mutex_unlock(&fs_state.fs_lock);
     return OS_OK;
 }
@@ -685,6 +693,7 @@ static uint32_t fs_alloc_block(void) {
         if (!(block_bitmap[byte] & (uint8_t)(1U << bit))) {
             block_bitmap[byte] |= (uint8_t)(1U << bit);
             fs_state.superblock.free_blocks--;
+            block_refcount[i] = 1;
             if (jnl.txn_active) {
                 jnl.bitmap_dirty     = true;
                 jnl.superblock_dirty = true;
@@ -696,13 +705,23 @@ static uint32_t fs_alloc_block(void) {
 }
 
 /**
- * Free a block
+ * Free a block.
+ * With COW semantics, the block is only returned to the free pool when
+ * its reference count drops to zero.
  */
 static os_error_t fs_free_block(uint32_t block) {
     if (block >= fs_state.superblock.total_blocks) {
         return OS_ERROR_INVALID_PARAM;
     }
 
+    if (block_refcount[block] > 1) {
+        /* Other inodes still share this block – only release our reference */
+        block_refcount[block]--;
+        return OS_OK;
+    }
+
+    /* Last reference: return block to free pool */
+    block_refcount[block] = 0;
     uint32_t byte = block / 8;
     uint32_t bit  = block % 8;
 
@@ -1075,10 +1094,33 @@ int32_t fs_write(fs_file_t fd, const void *buffer, size_t size) {
             jnl_commit();
             metadata_changed = true;
         } else {
-            /* Block exists – read-modify-write data (no metadata change yet) */
+            /* Block exists – read current content, apply new data */
             fs_read_block(inode.blocks[block_idx], block_buffer);
             memcpy(block_buffer + offset, (const uint8_t *)buffer + bytes_written, chunk);
-            fs_write_block(inode.blocks[block_idx], block_buffer);
+
+            if (block_refcount[inode.blocks[block_idx]] > 1) {
+                /* COW: block is shared – write to a private copy */
+                jnl_begin();
+                uint32_t old_block = inode.blocks[block_idx];
+                uint32_t new_block = fs_alloc_block();
+                if (new_block != 0xFFFFFFFFU) {
+                    inode.blocks[block_idx] = new_block;
+                    /* Write new data to the private block (ordered, not journaled) */
+                    fs_state.device->write(new_block, block_buffer, 1);
+                    jnl_cache_invalidate(new_block);
+                    /* Release shared reference on old block */
+                    block_refcount[old_block]--;
+                    /* Journal the updated inode (new block pointer) */
+                    fs_write_inode(fs_state.files[fd].inode, &inode);
+                    jnl_commit();
+                    metadata_changed = true;
+                } else {
+                    jnl.txn_active = false;
+                }
+            } else {
+                /* Unshared block – write in-place */
+                fs_write_block(inode.blocks[block_idx], block_buffer);
+            }
         }
 
         bytes_written += chunk;
@@ -1592,4 +1634,164 @@ os_error_t fs_closedir(fs_dir_t dir) {
 
     dir->in_use = false;
     return OS_OK;
+}
+
+/* =====================================================================
+ * Copy-on-Write (COW) support
+ * ===================================================================== */
+
+/**
+ * Rebuild block_refcount[] by scanning all live inodes.
+ *
+ * Called once from fs_mount after journal recovery.  Every block pointer
+ * found in a valid inode increments that block's reference count, so
+ * blocks shared by two or more inodes (e.g. after fs_snapshot) end up
+ * with count > 1 and will trigger COW on the next write.
+ */
+static void fs_rebuild_refcounts(void) {
+    memset(block_refcount, 0, sizeof(block_refcount));
+
+    for (uint32_t i = 0; i < fs_state.superblock.total_inodes; i++) {
+        fs_inode_t inode;
+        if (fs_read_inode(i, &inode) != OS_OK) {
+            continue;
+        }
+        if (inode.type == 0) {
+            continue;  /* Free inode */
+        }
+        for (int b = 0; b < 6; b++) {
+            if (inode.blocks[b] != 0 && inode.blocks[b] < FS_MAX_BLOCKS) {
+                block_refcount[inode.blocks[b]]++;
+            }
+        }
+    }
+}
+
+/**
+ * Create a copy-on-write snapshot of a file.
+ *
+ * The snapshot inode initially points to the same data blocks as the
+ * source.  Each shared block gets its reference count incremented.
+ * The first write to either file (source or snapshot) will trigger a
+ * COW allocation in fs_write, preserving the other copy unchanged.
+ *
+ * The entire operation is wrapped in a single journal transaction so
+ * that a power failure leaves the filesystem either fully snapshotted
+ * or completely unmodified.
+ */
+os_error_t fs_snapshot(const char *source, const char *snapshot_name) {
+    if (!fs_state.mounted || !source || !snapshot_name) {
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    os_mutex_lock(&fs_state.fs_lock, 1000);
+
+    const char *src_name  = (source[0]        == '/') ? source        + 1 : source;
+    const char *snap_name = (snapshot_name[0] == '/') ? snapshot_name + 1 : snapshot_name;
+
+    /* Locate source */
+    int32_t src_inode_num = fs_find_in_dir(fs_state.superblock.root_inode, src_name);
+    if (src_inode_num < 0) {
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR;
+    }
+
+    /* Snapshot name must not already exist */
+    if (fs_find_in_dir(fs_state.superblock.root_inode, snap_name) >= 0) {
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR;
+    }
+
+    fs_inode_t src_inode;
+    if (fs_read_inode((uint32_t)src_inode_num, &src_inode) != OS_OK) {
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR;
+    }
+
+    if (src_inode.type != FS_TYPE_REGULAR) {
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR_INVALID_PARAM;
+    }
+
+    /* Pre-check: find a free dentry slot before opening the transaction */
+    fs_inode_t dir_inode;
+    fs_read_inode(fs_state.superblock.root_inode, &dir_inode);
+
+    uint8_t dir_buffer[FS_BLOCK_SIZE];
+    size_t free_slot = (size_t)-1;
+
+    if (dir_inode.blocks[0] != 0) {
+        fs_read_block(dir_inode.blocks[0], dir_buffer);
+        fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
+        for (size_t i = 0; i < FS_BLOCK_SIZE / sizeof(fs_dentry_t); i++) {
+            if (entries[i].inode == 0) {
+                free_slot = i;
+                break;
+            }
+        }
+    }
+
+    /* If the dir block is absent or full we need to allocate – allow for that */
+    bool need_new_dir_block = (dir_inode.blocks[0] == 0 || free_slot == (size_t)-1);
+    if (need_new_dir_block && dir_inode.blocks[0] != 0) {
+        /* All slots in block[0] used – we would need block[1] etc.; bail out */
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR_NO_MEMORY;
+    }
+
+    /* ---- Begin atomic transaction ---- */
+    jnl_begin();
+
+    uint32_t snap_inode_num = fs_alloc_inode();
+    if (snap_inode_num == 0xFFFFFFFFU) {
+        jnl.txn_active = false;
+        os_mutex_unlock(&fs_state.fs_lock);
+        return OS_ERROR_NO_MEMORY;
+    }
+
+    /* Snapshot inode is a structural copy of source; both share data blocks */
+    fs_inode_t snap_inode = src_inode;
+    snap_inode.ctime = os_get_tick_count();
+    fs_write_inode(snap_inode_num, &snap_inode);  /* journaled */
+
+    /* Increment reference count on every shared data block */
+    for (int b = 0; b < 6; b++) {
+        if (src_inode.blocks[b] != 0 && src_inode.blocks[b] < FS_MAX_BLOCKS) {
+            block_refcount[src_inode.blocks[b]]++;
+        }
+    }
+
+    /* Install dentry in root directory */
+    if (need_new_dir_block) {
+        dir_inode.blocks[0] = fs_alloc_block();
+        memset(dir_buffer, 0, FS_BLOCK_SIZE);
+        free_slot = 0;
+    }
+
+    fs_dentry_t *entries = (fs_dentry_t *)dir_buffer;
+    strncpy(entries[free_slot].name, snap_name, FS_MAX_FILENAME_LENGTH - 1);
+    entries[free_slot].name[FS_MAX_FILENAME_LENGTH - 1] = '\0';
+    entries[free_slot].inode = snap_inode_num;
+    entries[free_slot].type  = FS_TYPE_REGULAR;
+    jnl_log(dir_inode.blocks[0], dir_buffer);
+
+    dir_inode.size += sizeof(fs_dentry_t);
+    fs_write_inode(fs_state.superblock.root_inode, &dir_inode);  /* journaled */
+
+    jnl_commit();
+
+    os_mutex_unlock(&fs_state.fs_lock);
+    return OS_OK;
+}
+
+/**
+ * Return the reference count of a block (diagnostic helper).
+ * Returns 0 for unallocated blocks, 1 for exclusively-owned blocks,
+ * and >1 for blocks shared between COW snapshots.
+ */
+uint8_t fs_get_block_refcount(uint32_t block_nr) {
+    if (block_nr >= FS_MAX_BLOCKS) {
+        return 0;
+    }
+    return block_refcount[block_nr];
 }

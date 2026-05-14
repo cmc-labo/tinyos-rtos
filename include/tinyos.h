@@ -939,6 +939,15 @@ uint32_t fs_get_free_space(void);
 /* Get total space in bytes */
 uint32_t fs_get_total_space(void);
 
+/* Copy-on-Write (COW) operations */
+
+/* Create a COW snapshot of a file.
+ * Both source and snapshot share data blocks until either is written. */
+os_error_t fs_snapshot(const char *source, const char *snapshot_name);
+
+/* Return the reference count of a block (0=free, 1=exclusive, >1=shared). */
+uint8_t fs_get_block_refcount(uint32_t block_nr);
+
 /*
  * Extended Task / Memory API  (used by shell and other diagnostics)
  */
