@@ -6,22 +6,10 @@
 
 #include "tinyos.h"
 #include "tinyos/trace.h"
+#include "hal/hal.h"
 #include <string.h>
 
-/*===========================================================================
- * SysTick registers (ARM Cortex-M, all variants)
- *===========================================================================*/
-#define SYST_CSR  (*(volatile uint32_t *)0xE000E010U) /* Control & Status  */
-#define SYST_RVR  (*(volatile uint32_t *)0xE000E014U) /* Reload Value      */
-#define SYST_CVR  (*(volatile uint32_t *)0xE000E018U) /* Current Value     */
-
-#define SYST_CSR_ENABLE    (1UL << 0)  /* Counter enable                   */
-#define SYST_CSR_TICKINT   (1UL << 1)  /* SysTick exception request enable */
-#define SYST_CSR_CLKSOURCE (1UL << 2)  /* 1 = processor clock              */
-
-/* Default core clock used for SysTick period calculation.
- * Override by defining SYSTEM_CORE_CLOCK before including tinyos.h,
- * or pass -DSYSTEM_CORE_CLOCK=<Hz> on the compiler command line.    */
+/* Default core clock — override via -DSYSTEM_CORE_CLOCK=<Hz> */
 #ifndef SYSTEM_CORE_CLOCK
 #define SYSTEM_CORE_CLOCK  168000000UL   /* 168 MHz — STM32F4 default */
 #endif
@@ -30,13 +18,6 @@
 extern void os_start_first_task(uint32_t *sp);
 extern void os_pend_sv(void);
 
-/*===========================================================================
- * SCB system handler priority registers (for PendSV / SysTick)
- *===========================================================================*/
-#define SCB_SHPR3  (*(volatile uint32_t *)0xE000ED20U)
-/* SHPR3 bits [23:16] = PendSV priority, bits [31:24] = SysTick priority */
-#define PENDSV_PRIO_LOWEST  (0xFFUL << 16)  /* PendSV  = 255 (lowest)    */
-#define SYSTICK_PRIO_HIGH   (0xC0UL << 24)  /* SysTick = 192             */
 
 /* Global kernel state */
 static struct {
@@ -293,21 +274,9 @@ void os_start(void) {
     kernel.current_task = scheduler_get_next_task();
     kernel.current_task->state = TASK_STATE_RUNNING;
 
-    /* Set exception priorities (must be done before enabling SysTick).
-     *   PendSV  = 0xFF (255, lowest possible) — runs after all other ISRs.
-     *   SysTick = 0xC0 (192) — higher than PendSV so tick counting is
-     *             not delayed by a context switch in progress.
-     * Lower numeric value = higher priority on ARM Cortex-M.             */
-    SCB_SHPR3 = PENDSV_PRIO_LOWEST | SYSTICK_PRIO_HIGH;
-
-    /* Configure SysTick:
-     *   reload = (core_clock / tick_rate) - 1
-     *   e.g.  168 000 000 / 1000 - 1 = 167 999                          */
-    SYST_RVR = (SYSTEM_CORE_CLOCK / TICK_RATE_HZ) - 1UL;
-    SYST_CVR = 0UL;                              /* clear current value   */
-    SYST_CSR = SYST_CSR_CLKSOURCE               /* processor clock        */
-             | SYST_CSR_TICKINT                  /* enable SysTick IRQ     */
-             | SYST_CSR_ENABLE;                  /* start counter          */
+    /* Initialise the HAL and start the periodic tick source. */
+    hal_init();
+    hal_tick_init(SYSTEM_CORE_CLOCK, TICK_RATE_HZ);
 
     /* Hand off to the first task via SVC (assembly trampoline).
      * This call never returns — EXC_RETURN in SVC_Handler launches
@@ -595,20 +564,11 @@ uint32_t os_get_uptime_ms(void) {
  * Critical section management
  */
 uint32_t os_enter_critical(void) {
-    uint32_t primask;
-    __asm__ volatile(
-        "mrs %0, primask\n"
-        "cpsid i\n"
-        : "=r"(primask)
-    );
-    return primask;
+    return hal_irq_save();
 }
 
 void os_exit_critical(uint32_t state) {
-    __asm__ volatile(
-        "msr primask, %0\n"
-        : : "r"(state)
-    );
+    hal_irq_restore(state);
 }
 
 /**
@@ -1237,10 +1197,9 @@ bool os_task_stack_is_healthy(const tcb_t *task) {
  * Stack overflow detection — persistent record + configurable recovery
  *===========================================================================*/
 
-/* ARMv7-M Application Interrupt and Reset Control Register */
-#define SCB_AIRCR          (*(volatile uint32_t *)0xE000ED0CU)
-#define AIRCR_VECTKEY      (0x05FAUL << 16)
-#define AIRCR_SYSRESETREQ  (1UL << 2)
+/*===========================================================================
+ * Stack overflow detection — persistent record + configurable recovery
+ *===========================================================================*/
 
 /*
  * Overflow diagnostic record in .noinit RAM.
@@ -1324,12 +1283,8 @@ void os_stack_overflow_hook(tcb_t *task) {
         case OVERFLOW_ACTION_RESET:
             /* Record is already written above.  Issue an NVIC system reset so
              * the record survives in .noinit and the system restarts cleanly. */
-            __asm__ volatile("dsb");
-            SCB_AIRCR = AIRCR_VECTKEY
-                      | (SCB_AIRCR & 0x0700U)   /* preserve PRIGROUP */
-                      | AIRCR_SYSRESETREQ;
-            __asm__ volatile("isb");
-            while (1);                           /* wait for reset to take effect */
+            hal_system_reset();   /* does not return */
+            while (1);            /* unreachable — satisfies compiler */
 
         case OVERFLOW_ACTION_KILL_TASK:
             if (task != NULL) {
@@ -1400,11 +1355,6 @@ void os_stack_overflow_hook(tcb_t *task) {
  *   Internal critical sections protect shared kernel state.
  *===========================================================================*/
 
-/* DWT registers (Cortex-M3/M4/M7; read as zero on Cortex-M0/M0+) */
-#define DWT_CTRL    (*(volatile uint32_t *)0xE0001000U)
-#define DWT_CYCCNT  (*(volatile uint32_t *)0xE0001004U)
-#define DWT_CTRL_CYCCNTENA  (1UL << 0)
-
 /* Cycles per SysTick tick — derived from the compile-time clock constant. */
 #define CYCLES_PER_TICK  (SYSTEM_CORE_CLOCK / TICK_RATE_HZ)
 
@@ -1427,31 +1377,26 @@ void os_kernel_tickless_sleep(void) {
         }
     }
 
-    /* ── 2. Enable DWT and stop SysTick ───────────────────────────────── */
-    DWT_CTRL |= DWT_CTRL_CYCCNTENA;   /* enable cycle counter if not already */
-    SYST_CSR &= ~SYST_CSR_ENABLE;     /* stop SysTick — no more tick IRQs    */
-    uint32_t cyc_before = DWT_CYCCNT; /* snapshot before sleep               */
+    /* ── 2. Stop tick source and snapshot the cycle counter ───────────── */
+    hal_tick_suppress(sleep_ticks);
+    uint32_t cyc_before = hal_cycle_counter_read();
 
     os_exit_critical(cs);
 
     /* ── 3. Sleep ─────────────────────────────────────────────────────── */
-    /* WFI returns as soon as any unmasked interrupt becomes pending.
-     * If another interrupt fires between os_exit_critical and WFI, the
-     * processor treats WFI as a NOP and returns immediately — correct. */
-    __asm__ volatile("wfi" ::: "memory");
+    hal_cpu_wait_for_interrupt();
 
-    /* ── 4. Measure elapsed ticks via DWT ─────────────────────────────── */
+    /* ── 4. Measure elapsed ticks via cycle counter ────────────────────── */
     cs = os_enter_critical();
 
-    uint32_t elapsed_cycles = DWT_CYCCNT - cyc_before; /* wrap-safe subtract */
+    uint32_t elapsed_cycles = hal_cycle_counter_read() - cyc_before;
     uint32_t elapsed_ticks  = elapsed_cycles / CYCLES_PER_TICK;
     if (elapsed_ticks > sleep_ticks) {
         elapsed_ticks = sleep_ticks;   /* clamp: never advance past our bound */
     }
 
-    /* ── 5. Restart SysTick and advance tick counter ──────────────────── */
-    SYST_CVR = 0;                      /* clear so next tick is a full period */
-    SYST_CSR |= SYST_CSR_ENABLE;
+    /* ── 5. Restart tick source and advance tick counter ─────────────── */
+    hal_tick_unsuppress();
 
     kernel.tick_count += elapsed_ticks;
 

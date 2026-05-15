@@ -10,6 +10,7 @@
  */
 
 #include "tinyos.h"
+#include "hal/hal.h"
 #include <string.h>
 
 /* Power management state */
@@ -31,18 +32,28 @@ static struct {
 
 /* Platform-specific power control functions (weak symbols for override) */
 __attribute__((weak)) void platform_enter_sleep_mode(void) {
-    /* Default: WFI (Wait For Interrupt) */
-    __asm__ volatile("wfi");
+    const hal_platform_t *plat = hal_platform_get();
+    if (plat != NULL && plat->power != NULL && plat->power->enter_sleep != NULL) {
+        plat->power->enter_sleep();
+    } else {
+        hal_cpu_wait_for_interrupt();
+    }
 }
 
 __attribute__((weak)) void platform_enter_deep_sleep_mode(void) {
-    /* Default: WFI - platform should override with deep sleep */
-    __asm__ volatile("wfi");
+    const hal_platform_t *plat = hal_platform_get();
+    if (plat != NULL && plat->power != NULL && plat->power->enter_deep_sleep != NULL) {
+        plat->power->enter_deep_sleep();
+    } else {
+        hal_cpu_wait_for_interrupt();
+    }
 }
 
 __attribute__((weak)) void platform_set_clock_frequency(uint32_t freq_hz) {
-    /* Platform-specific clock adjustment */
-    (void)freq_hz;
+    const hal_platform_t *plat = hal_platform_get();
+    if (plat != NULL && plat->power != NULL && plat->power->set_clock_hz != NULL) {
+        plat->power->set_clock_hz(freq_hz);
+    }
 }
 
 __attribute__((weak)) void platform_enable_wakeup_source(wakeup_source_t source) {
@@ -56,12 +67,16 @@ __attribute__((weak)) void platform_disable_wakeup_source(wakeup_source_t source
 }
 
 __attribute__((weak)) uint32_t platform_get_power_consumption_mw(void) {
-    /* Return estimated values based on power mode */
+    const hal_platform_t *plat = hal_platform_get();
+    if (plat != NULL && plat->power != NULL && plat->power->consumption_mw != NULL) {
+        return plat->power->consumption_mw();
+    }
+    /* Fallback estimates when no platform is registered */
     switch (power_state.current_mode) {
-        case POWER_MODE_ACTIVE:     return 50;   /* 50mW */
-        case POWER_MODE_IDLE:       return 10;   /* 10mW */
-        case POWER_MODE_SLEEP:      return 1;    /* 1mW */
-        case POWER_MODE_DEEP_SLEEP: return 0;    /* <1mW */
+        case POWER_MODE_ACTIVE:     return 50;
+        case POWER_MODE_IDLE:       return 10;
+        case POWER_MODE_SLEEP:      return 1;
+        case POWER_MODE_DEEP_SLEEP: return 0;
         default:                    return 50;
     }
 }

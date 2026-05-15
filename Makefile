@@ -12,24 +12,43 @@ SIZE := $(CROSS_COMPILE)size
 TARGET := tinyos
 ARCH ?= cortex-m4
 
+# HAL architecture selection (derived from ARCH)
+# Maps ARCH prefix → HAL subdirectory name and compile-time -D flag.
+ifneq ($(filter cortex-m%,$(ARCH)),)
+  HAL_ARCH     := cortex_m
+  HAL_ARCH_DEF := HAL_ARCH_CORTEX_M
+else ifneq ($(filter riscv%,$(ARCH)),)
+  HAL_ARCH     := riscv
+  HAL_ARCH_DEF := HAL_ARCH_RISCV
+  CROSS_COMPILE := riscv32-unknown-elf-
+else ifneq ($(filter avr%,$(ARCH)),)
+  HAL_ARCH     := avr
+  HAL_ARCH_DEF := HAL_ARCH_AVR
+  CROSS_COMPILE := avr-
+else
+  $(error Unsupported ARCH=$(ARCH). Supported prefixes: cortex-m*, riscv*, avr*)
+endif
+
 # Directories
 SRC_DIR := src
 INC_DIR := include
 EXAMPLES_DIR := examples
 DRIVERS_DIR := drivers
+HAL_DIR := hal
 BUILD_DIR := build
 
 # Source files
 KERNEL_SRCS := $(wildcard $(SRC_DIR)/*.c)
 NET_SRCS    := $(filter-out $(SRC_DIR)/net/tls.c, $(wildcard $(SRC_DIR)/net/*.c))
 DRIVER_SRCS := $(wildcard $(DRIVERS_DIR)/*.c)
+HAL_SRCS    := $(wildcard $(HAL_DIR)/$(HAL_ARCH)/*.c)
 EXAMPLE ?= blink_led
 EXAMPLE_SRC := $(EXAMPLES_DIR)/$(EXAMPLE).c
 
 # Assembly sources (Thumb-2, ARM Cortex-M specific)
 ASM_SRCS := $(wildcard $(SRC_DIR)/*.s)
 
-ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(EXAMPLE_SRC) \
+ALL_SRCS := $(KERNEL_SRCS) $(NET_SRCS) $(DRIVER_SRCS) $(HAL_SRCS) $(EXAMPLE_SRC) \
             $(if $(MBEDTLS_DIR),$(MBEDTLS_SRCS),)
 C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRCS)))
 ASM_OBJS := $(patsubst %.s,$(BUILD_DIR)/%.o,$(notdir $(ASM_SRCS)))
@@ -76,7 +95,8 @@ CFLAGS += -std=c11
 CFLAGS += -mcpu=$(ARCH) -mthumb
 CFLAGS += -O2 -g
 CFLAGS += -ffunction-sections -fdata-sections
-CFLAGS += -I$(INC_DIR) -I.
+CFLAGS += -I$(INC_DIR) -I$(HAL_DIR) -I.
+CFLAGS += -D$(HAL_ARCH_DEF)
 CFLAGS += -DTINYOS_VERSION=\"1.0.0\"
 # TLS support (add -DTINYOS_TLS_ENABLE to enable TLS; requires MBEDTLS_DIR)
 MBEDTLS_AVAILABLE := $(shell test -f $(MBEDTLS_INC)/mbedtls/ssl.h && echo yes)
@@ -121,6 +141,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/net/%.c | $(BUILD_DIR)
 # Compile drivers
 $(BUILD_DIR)/%.o: $(DRIVERS_DIR)/%.c | $(BUILD_DIR)
 	@echo "Compiling driver: $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile HAL
+$(BUILD_DIR)/%.o: $(HAL_DIR)/$(HAL_ARCH)/%.c | $(BUILD_DIR)
+	@echo "Compiling HAL [$(HAL_ARCH)]: $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Compile example
@@ -224,6 +249,8 @@ help:
 	@echo "  size             - Display memory usage"
 	@echo ""
 	@echo "Variables:"
-	@echo "  ARCH=cortex-m4   - Target architecture"
-	@echo "  CROSS_COMPILE    - Toolchain prefix"
+	@echo "  ARCH=cortex-m4   - Target architecture (cortex-m*, riscv*, avr*)"
+	@echo "  CROSS_COMPILE    - Toolchain prefix (auto-set from ARCH)"
 	@echo "  EXAMPLE          - Example to build"
+	@echo ""
+	@echo "HAL_ARCH=$(HAL_ARCH)  HAL_ARCH_DEF=$(HAL_ARCH_DEF)"
