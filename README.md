@@ -15,7 +15,7 @@ Kernel footprint under 10 KB, 2 KB minimum RAM, preemptive priority-based schedu
 | **Memory** | First-fit allocator with immediate coalescing (8 KB heap, 8-byte aligned), stack overflow detection, per-task high-water mark |
 | **Shell** | VT100 interactive shell — 23 built-in commands, command history (↑↓), tab completion, full line editor |
 | **POSIX Compatibility** | pthreads (create/join/detach/exit, mutex, cond var) · BSD socket API (socket/bind/listen/accept/connect/send/recv, inet_pton/ntop, htons/htonl) |
-| **File System** | Lightweight block-device FS, POSIX-like API, wear levelling, power-fail safe |
+| **File System** | Journaling block-device FS (WAL, crash recovery), COW block sharing, atomic snapshots, POSIX-like API |
 | **Network** | Ethernet, IPv4, ICMP, UDP, TCP, HTTP client/server, DNS |
 | **TLS / DTLS** | TLS 1.2/1.3 over TCP, DTLS 1.2 over UDP (mbedTLS backend) |
 | **MQTT** | Full MQTT 3.1.1 — QoS 0/1/2 with in-flight retry table, offline queue, auto-reconnect with exponential back-off |
@@ -24,6 +24,7 @@ Kernel footprint under 10 KB, 2 KB minimum RAM, preemptive priority-based schedu
 | **Watchdog** | Hardware and software watchdog, per-task timeout monitoring |
 | **Power** | Idle / Sleep / Deep-sleep modes, tickless idle, CPU frequency scaling |
 | **Security** | MPU-based memory protection, secure boot support |
+| **HAL** | Generic Hardware Abstraction Layer — ARM Cortex-M / RISC-V / AVR; compile-time arch selection, peripheral op-tables |
 
 ---
 
@@ -59,8 +60,14 @@ qemu-system-arm --version     # 6.x or later
 ### Build
 
 ```bash
-# Default example (blink_led)
+# Default example (blink_led) — ARM Cortex-M4
 make
+
+# Target a different architecture (auto-selects toolchain and HAL)
+make ARCH=cortex-m0           # Cortex-M0/M0+
+make ARCH=cortex-m7           # Cortex-M7
+make ARCH=riscv32             # RISC-V RV32I  (uses riscv32-unknown-elf-gcc)
+make ARCH=avr5                # AVR ATmega    (uses avr-gcc)
 
 # Specific example
 make EXAMPLE=blink_led        # LED blink + task scheduler demo
@@ -560,6 +567,46 @@ fs_mkdir(path) / fs_remove(path) / fs_rmdir(path)
 fs_stat(path, stat)
 fs_opendir(path) / fs_readdir(dir, entry) / fs_closedir(dir)
 fs_get_stats(stats) / fs_get_free_space() / fs_is_mounted()
+
+/* Copy-on-Write snapshots */
+fs_snapshot(source_path, snapshot_name)   /* atomic COW snapshot of a file */
+fs_get_block_refcount(block_nr)           /* reference count of a data block */
+```
+
+#### Journaling (Write-Ahead Log)
+
+The filesystem uses **metadata-only journaling** (ordered mode).  Before any
+inode, bitmap, or directory block is modified, a journal record is written to a
+dedicated 32-block WAL area at the start of the partition.  On the next mount
+after a crash, `fs_mount` replays the journal and restores a consistent state.
+
+```
+Disk layout (FS_BLOCK_SIZE = 512 bytes)
+ Block 0      Superblock  (version 0x00020000 — v2 with journaling)
+ Block 1      Block bitmap
+ Block 2      Journal header
+ Blocks 3-33  Journal data  (31 slots)
+ Blocks 34-41 Inode table   (8 blocks, 128 inodes)
+ Block 42+    Data blocks
+```
+
+#### Copy-on-Write (COW)
+
+Each data block carries an in-memory reference count rebuilt from the inode
+table at mount time.  Writing to a block that is shared (`refcount > 1`)
+allocates a private copy first — the original block's count is decremented and
+all changes happen to the new block.
+
+`fs_snapshot()` creates an atomic point-in-time snapshot by duplicating the
+source inode (same block pointers, bumped refcounts) inside a single journal
+transaction.  Either the full snapshot is committed or nothing changes.
+
+```c
+/* Create a snapshot of /data/config → /snapshots/config-20260101 */
+fs_snapshot("/data/config", "/snapshots/config-20260101");
+
+/* Inspect sharing */
+uint8_t rc = fs_get_block_refcount(42);   /* 1 = private, >1 = shared */
 ```
 
 ### Power Management
@@ -585,6 +632,77 @@ wdt_init(config) / wdt_start() / wdt_stop()
 wdt_feed() / wdt_set_timeout(ms)
 wdt_register_task(task, timeout_ms) / wdt_feed_task(task)
 ```
+
+### HAL (Hardware Abstraction Layer)
+
+TinyOS provides a generic HAL that hides all architecture-specific register
+access behind a stable C interface.  The architecture is selected at **compile
+time** via the `ARCH` Makefile variable; no `#ifdef` guards appear in kernel
+code.
+
+#### Portable primitives (declared `static inline` in each arch header)
+
+```c
+uint32_t hal_irq_save(void)           /* disable IRQs, return saved state   */
+void     hal_irq_restore(uint32_t s)  /* restore IRQ state                  */
+void     hal_context_switch_trigger() /* pend PendSV / raise MSIP / Timer0  */
+void     hal_cpu_wait_for_interrupt() /* WFI / wfi / sleep instruction      */
+void     hal_cpu_dsb(void)            /* data synchronization barrier        */
+void     hal_cpu_isb(void)            /* instruction synchronization barrier */
+```
+
+#### Non-inline functions (implemented per arch in `hal/<arch>/hal_<arch>.c`)
+
+```c
+void     hal_init(void)
+void     hal_tick_init(uint32_t core_clock_hz, uint32_t tick_rate_hz)
+void     hal_tick_suppress(uint32_t max_ticks)
+uint32_t hal_tick_unsuppress(void)
+uint32_t hal_core_clock_hz(void)
+
+bool     hal_cycle_counter_init(void)
+void     hal_cycle_counter_reset(void)
+uint32_t hal_cycle_counter_read(void)
+
+bool     hal_mpu_init(uint8_t *region_count)
+int      hal_mpu_configure_region(uint8_t region, uint32_t base,
+                                   uint32_t size, uint32_t attrs)
+void     hal_mpu_enable(bool allow_privileged_default)
+void     hal_mpu_disable(void)
+
+void     hal_irq_set_priority(int irq_num, uint8_t priority)
+void     hal_system_reset(void)          /* does not return */
+void     hal_fault_capture(const uint32_t *frame, hal_fault_info_t *info)
+```
+
+#### Board-level platform registry
+
+Register board peripherals once at startup; the kernel and power manager query
+the table via `hal_platform_get()` instead of using weak symbols.
+
+```c
+static const hal_uart_ops_t  my_uart  = { .init = ..., .putc = ... };
+static const hal_power_ops_t my_power = { .enter_sleep = ...,
+                                           .set_clock_hz = ... };
+
+static const hal_platform_t board = {
+    .uart[0] = &my_uart,
+    .power   = &my_power,
+};
+
+hal_platform_register(&board);   /* call before os_start() */
+```
+
+`hal_platform_t` provides slots for `uart[4]`, `flash`, `gpio`, `spi[4]`,
+`i2c[4]`, and `power`.  Any `NULL` pointer means "not present on this board".
+
+#### Architecture support matrix
+
+| Architecture | Tick source | Cycle counter | MPU / PMP | Context switch trigger |
+|---|---|---|---|---|
+| Cortex-M0/M0+/M3/M4/M7 | SysTick | DWT CYCCNT (M3+) | MPU | PendSV via ICSR |
+| RISC-V RV32I/IM | CLINT MTIMECMP | `rdcycle` CSR | PMP (4 regions) | MSIP software interrupt |
+| AVR ATmega/ATtiny | Timer0 CTC | — (returns 0) | — | Timer0 overflow |
 
 ---
 
@@ -672,6 +790,17 @@ tinyos-rtos/
 │   └── posix/
 │       ├── posix_threads.c   # pthreads → TinyOS task/sync wrapper
 │       └── posix_socket.c    # BSD socket → net_* wrapper
+├── hal/
+│   ├── hal.h                 # Portable HAL interface (arch-agnostic API + peripheral op-tables)
+│   ├── cortex_m/
+│   │   ├── hal_cortex_m.h    # Register defines + static inline primitives (irq_save, WFI, DSB …)
+│   │   └── hal_cortex_m.c    # SysTick, DWT, MPU, AIRCR reset, fault capture
+│   ├── riscv/
+│   │   ├── hal_riscv.h       # csrrci/csrw inline primitives, CLINT defines
+│   │   └── hal_riscv.c       # CLINT tick, rdcycle counter, PMP, PLIC priority, CSR fault capture
+│   └── avr/
+│       ├── hal_avr.h         # SREG-based irq_save, Timer0 context-switch trigger
+│       └── hal_avr.c         # Timer0 CTC tick, watchdog reset, stub MPU/cycle-counter
 ├── drivers/
 │   ├── flash.c / flash.h     # Flash memory driver
 │   ├── ramdisk.c / ramdisk.h # RAM disk (testing)
@@ -725,6 +854,55 @@ tinyos-rtos/
 ---
 
 ## Changelog
+
+### v2.0.0
+
+**New features**
+
+- **Journaling filesystem** (`src/filesystem.c`) — Write-Ahead Log (WAL) protects
+  all metadata writes (inodes, bitmap, superblock, directories).  
+  On-disk format bumped to `FS_VERSION 0x00020000`.  Journal occupies 32 blocks
+  starting at block 2; `fs_mount` replays any committed but unapplied transaction
+  before handing control to the application.  Metadata-only (ordered) journaling
+  keeps write amplification low while guaranteeing a consistent filesystem after
+  a power failure or reset at any point during a write.
+
+- **Copy-on-Write block sharing** (`src/filesystem.c`) — Every data block carries
+  an in-memory reference count (rebuilt from the inode table at mount time).
+  Writing to a shared block silently allocates a private copy; the shared block's
+  count is decremented.  `fs_snapshot(source, name)` creates an atomic
+  point-in-time snapshot inside a single journal transaction — either all or
+  nothing is committed.  New public API: `fs_snapshot()` and
+  `fs_get_block_refcount()` (see `include/tinyos.h`).
+
+- **Generic HAL** (`hal/`) — A two-tier Hardware Abstraction Layer decouples the
+  kernel from ARM Cortex-M-specific assembly.
+  - `hal/hal.h` — architecture-agnostic interface: tick, cycle counter, MPU,
+    IRQ save/restore, context-switch trigger, system reset, fault capture, and
+    peripheral op-tables (`hal_platform_t` with UART / flash / GPIO / SPI / I²C /
+    power slots).
+  - `hal/cortex_m/` — full Cortex-M0–M7 implementation (SysTick, DWT, AIRCR,
+    PRIMASK, PendSV trigger).
+  - `hal/riscv/` — RISC-V RV32 stub (CLINT MTIMECMP tick, `rdcycle` counter,
+    PMP, PLIC priority, CSR fault capture).
+  - `hal/avr/` — AVR ATmega stub (Timer0 CTC tick, SREG critical sections,
+    watchdog reset).
+  - Makefile auto-selects the HAL from `ARCH=` (`cortex-m*` / `riscv*` / `avr*`)
+    and passes `-DHAL_ARCH_*` to the compiler.
+
+**Breaking changes**
+
+- `src/kernel.c` no longer contains bare `SYST_*`, `SCB_SHPR3`, `SCB_AIRCR`, or
+  `DWT_*` register defines — these are now supplied by the HAL.  Code that
+  directly referenced these macros must be updated to use the HAL API.
+- `src/power.c` weak symbols (`platform_enter_sleep_mode`, etc.) now delegate to
+  `hal_platform_t->power` when a platform is registered; boards that relied on
+  the old `__asm__ volatile("wfi")` default will see identical behaviour unless
+  a `hal_power_ops_t` is registered.
+- Filesystem on-disk version is `0x00020000`.  Volumes formatted with v1.x must
+  be reformatted (`fs_format`).
+
+---
 
 ### v1.2.0
 
