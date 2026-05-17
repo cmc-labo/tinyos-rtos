@@ -1306,8 +1306,10 @@ uint32_t os_event_group_get_bits(event_group_t *event_group) {
  * Remove a task from a condition variable's wait queue (must be called within critical section)
  */
 static void cond_remove_task(cond_var_t *cond, tcb_t *task) {
+    bool removed = false;
     if (cond->wait_queue == task) {
         cond->wait_queue = task->next;
+        removed = true;
     } else {
         tcb_t *prev = cond->wait_queue;
         while (prev != NULL && prev->next != task) {
@@ -1315,9 +1317,12 @@ static void cond_remove_task(cond_var_t *cond, tcb_t *task) {
         }
         if (prev != NULL) {
             prev->next = task->next;
+            removed = true;
         }
     }
-    cond->waiting_count--;
+    if (removed) {
+        cond->waiting_count--;
+    }
     task->next = NULL;
 }
 

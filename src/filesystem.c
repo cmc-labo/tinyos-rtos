@@ -337,12 +337,20 @@ static os_error_t jnl_commit(void) {
         return OS_ERROR;
     }
 
-    /* Auto-include bitmap and superblock if they were touched */
+    /* Auto-include bitmap and superblock if they were touched.
+     * Both must fit in the pending buffer — fail the whole commit if not,
+     * so the WAL never records a partial transaction.                    */
     if (jnl.bitmap_dirty) {
-        jnl_log(1U, block_bitmap);
+        if (jnl_log(1U, block_bitmap) != OS_OK) {
+            jnl.txn_active = false;
+            return OS_ERROR_NO_MEMORY;
+        }
     }
     if (jnl.superblock_dirty) {
-        jnl_log(0U, &fs_state.superblock);
+        if (jnl_log(0U, &fs_state.superblock) != OS_OK) {
+            jnl.txn_active = false;
+            return OS_ERROR_NO_MEMORY;
+        }
     }
 
     if (jnl.txn_count == 0) {
@@ -686,7 +694,8 @@ static os_error_t fs_sync_cache(void) {
  * Allocate a free block
  */
 static uint32_t fs_alloc_block(void) {
-    for (uint32_t i = fs_state.superblock.first_data_block; i < fs_state.superblock.total_blocks; i++) {
+    for (uint32_t i = fs_state.superblock.first_data_block;
+         i < fs_state.superblock.total_blocks && i < FS_MAX_BLOCKS; i++) {
         uint32_t byte = i / 8;
         uint32_t bit  = i % 8;
 
@@ -710,7 +719,7 @@ static uint32_t fs_alloc_block(void) {
  * its reference count drops to zero.
  */
 static os_error_t fs_free_block(uint32_t block) {
-    if (block >= fs_state.superblock.total_blocks) {
+    if (block >= fs_state.superblock.total_blocks || block >= FS_MAX_BLOCKS) {
         return OS_ERROR_INVALID_PARAM;
     }
 

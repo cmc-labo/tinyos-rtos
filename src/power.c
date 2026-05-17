@@ -326,9 +326,10 @@ uint32_t os_power_estimate_battery_life_hours(void) {
         return 0xFFFFFFFF;  /* Effectively infinite */
     }
 
-    /* Convert battery capacity to mWh */
-    uint32_t battery_mwh = power_state.config.battery_capacity_mah *
-                          power_state.config.battery_voltage_mv / 1000;
+    /* Convert battery capacity to mWh — use 64-bit to avoid overflow before /1000 */
+    uint32_t battery_mwh = (uint32_t)(
+        ((uint64_t)power_state.config.battery_capacity_mah *
+         power_state.config.battery_voltage_mv) / 1000U);
 
     return battery_mwh / power_mw;
 }
