@@ -251,14 +251,18 @@ void os_timer_process(void) {
             /* Re-enter critical section */
             state = os_enter_critical();
 
-            /* If auto-reload, restart timer */
+            /* If auto-reload, re-insert the timer before restarting the scan. */
             if (expired_timer->type == TIMER_AUTO_RELOAD) {
                 expired_timer->expire_time = current_time + expired_timer->period;
                 expired_timer->active = true;
                 timer_insert_sorted(expired_timer);
-                prev = NULL;
-                timer = timer_manager.active_timers;
             }
+
+            /* Always restart the scan from the list head: the callback may have
+             * stopped, deleted, or added timers, making the saved 'timer' pointer
+             * stale.  Restarting is O(n) but safe; the list is typically tiny. */
+            prev = NULL;
+            timer = timer_manager.active_timers;
         } else {
             /* Timers are sorted, so we can break early */
             break;

@@ -588,8 +588,10 @@ void os_get_stats(os_stats_t *stats) {
     stats->blocked_tasks = blocked;
     stats->context_switches = kernel.context_switch_count;
     stats->uptime_ticks = kernel.tick_count;
-    stats->free_memory = os_get_free_memory();
-    stats->used_memory = 0;  /* To be implemented */
+    size_t free_m, used_m;
+    os_get_memory_stats(&free_m, &used_m, NULL, NULL);
+    stats->free_memory = free_m;
+    stats->used_memory = used_m;
 }
 
 /**
@@ -1077,10 +1079,10 @@ void os_print_all_stats(void) {
     /* Print system stats */
     /* Note: printf implementation would go here */
 
-    /* Print each task */
+    /* Print each task from the registry (covers external TCBs, skips empty slots) */
     for (int i = 0; i < MAX_TASKS; i++) {
-        if (kernel.task_pool[i].state != TASK_STATE_TERMINATED) {
-            os_print_task_stats(&kernel.task_pool[i]);
+        if (kernel.task_registry[i] != NULL) {
+            os_print_task_stats(kernel.task_registry[i]);
         }
     }
 }
@@ -1192,10 +1194,6 @@ bool os_task_stack_is_healthy(const tcb_t *task) {
     }
     return true;
 }
-
-/*===========================================================================
- * Stack overflow detection — persistent record + configurable recovery
- *===========================================================================*/
 
 /*===========================================================================
  * Stack overflow detection — persistent record + configurable recovery
